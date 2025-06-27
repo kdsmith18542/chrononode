@@ -1,0 +1,40 @@
+//! Event publishing system for ChronoNode.
+//! 
+//! This module provides an event publishing system that allows different components
+//! to publish and subscribe to blockchain events asynchronously.
+
+// Core event types and structures
+mod event_structure;
+pub use event_structure::{Event, EventType, EventPayload};
+
+// Event bus implementation
+mod event_bus;
+pub use event_bus::{EventBus, EventHandler, EventHandlerFn};
+
+// Message queue integration
+pub mod message_queue;
+
+// Event publisher
+pub mod publisher;
+
+// Event processor
+pub mod processor;
+
+// Configuration
+pub mod config;
+
+// Chain-specific event handlers
+#[cfg(feature = "ethereum")]
+pub mod ethereum_events;
+
+// Test utilities
+#[cfg(test)]
+mod test_utils;
+
+// Re-export commonly used types
+pub use self::{
+    config::EventConfig,
+    message_queue::{MessageQueuePublisher, AmqpMessageQueue, NoOpMessageQueue},
+    processor::{EventProcessor, DefaultEventProcessor},
+    publisher::EventPublisher,
+};

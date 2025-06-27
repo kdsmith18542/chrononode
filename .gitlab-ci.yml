@@ -1,0 +1,54 @@
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+  CARGO_TARGET_DIR: $CI_PROJECT_DIR/target
+
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .cargo/bin
+    - .cargo/registry/index
+    - .cargo/registry/cache
+    - .cargo/git/db
+    - target/
+
+before_script:
+  - rustc --version
+  - cargo --version
+  - rustup component add rustfmt
+  - rustup component add clippy
+
+test:
+  stage: test
+  script:
+    - cargo test --no-fail-fast -- --test-threads=1
+
+fmt:
+  stage: test
+  script:
+    - cargo fmt -- --check
+
+clippy:
+  stage: test
+  script:
+    - cargo clippy -- -D warnings
+
+build:
+  stage: build
+  script:
+    - cargo build --release
+  artifacts:
+    paths:
+      - target/release/
+    expire_in: 1 week
+
+deploy:
+  stage: deploy
+  script:
+    - echo "Define your deployment script here"
+  only:
+    - main  # or 'master' depending on your default branch name

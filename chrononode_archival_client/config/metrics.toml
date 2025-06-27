@@ -1,0 +1,49 @@
+# Metrics configuration for ChronoNode Archival Client
+
+# Enable or disable metrics collection
+enabled = true
+
+# Address and port for the metrics HTTP server
+bind_address = "0.0.0.0:9090"
+
+# Path for the metrics endpoint (default: /metrics)
+metrics_path = "/metrics"
+
+# Path for the health check endpoint (default: /health)
+health_path = "/health"
+
+# Enable/disable process metrics collection (CPU, memory, etc.)
+process_metrics = true
+
+# Enable/disable system metrics collection (disk, network, etc.)
+system_metrics = true
+
+# Metrics collection interval in seconds
+collection_interval = 15
+
+# Enable/disable default metrics from the metrics crate
+default_metrics = true
+
+# Custom labels to add to all metrics
+[labels]
+environment = "development"
+service = "chrononode-archival"
+version = "0.1.0"
+
+# Histogram buckets for latency metrics (in seconds)
+[histogram_buckets]
+latency = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+
+# Event bus specific metrics
+[event_bus]
+# Enable/disable event bus metrics
+track_events = true
+
+# Track queue size for event bus
+track_queue_size = true
+
+# Track processing time for event handlers
+track_processing_time = true
+
+# Track errors in event handlers
+track_errors = true
