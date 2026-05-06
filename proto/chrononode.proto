@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package chrononode.v1;
+
+message ChronoBlock {
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  uint64 height = 3;
+  bytes block_hash = 4;
+  bytes prev_hash = 5;
+  uint64 timestamp = 6;
+  string block_model = 7;
+  string hash_algorithm = 8;
+  repeated ChronoTx transactions = 9;
+  repeated ChronoEvent events = 10;
+  bytes extra_data = 11;
+}
+
+message ChronoTx {
+  bytes tx_hash = 1;
+  bytes sender = 2;
+  bytes recipient = 3;
+  uint64 amount = 4;
+  uint64 nonce = 5;
+  bytes payload = 6;
+  uint64 gas_limit = 7;
+  uint64 gas_used = 8;
+  bytes extra_data = 9;
+}
+
+message ChronoEvent {
+  string event_type = 1;
+  bytes emitter = 2;
+  uint64 tx_index = 3;
+  uint64 event_index = 4;
+  bytes payload = 5;
+}

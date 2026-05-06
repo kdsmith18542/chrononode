@@ -1,0 +1,28 @@
+[verification]
+checkpoint_size = 1000
+hash_algorithm = "sha256"
+
+[api]
+port = 8080
+api_key = "your-secret-api-key-here"
+
+[api.rate_limiting]
+requests_per_second = 100
+burst_size = 200
+
+[storage]
+backend = "local_fs"
+# backend = "ipfs"
+# backend = "pinata"
+base_path = "./data"
+
+[index]
+db_path = "./data/index.db"
+
+[logging]
+level = "info"
+format = "json"
+
+[metrics]
+enabled = true
+port = 9090

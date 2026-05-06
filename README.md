@@ -1,38 +1,50 @@
 # ChronoNode
 
-A Rust-based project for [brief description of what ChronoNode does].
+ChronoNode is an independent verifiable archival layer for blockchain and app-ledger history.
 
-## Getting Started
+It archives blocks and events from supported networks into content-addressed storage, stores compact metadata locally, and serves historical queries with Merkle proofs.
 
-### Prerequisites
-
-- Rust (latest stable version recommended)
-- Cargo (Rust's package manager)
-
-### Installation
+## Quick Start
 
 ```bash
-# Clone the repository
-git clone [your-gitlab-repo-url]
-cd ChronoNode
+docker compose up
+```
 
-# Build the project
-cargo build
+Or build from source:
 
-# Run tests
-cargo test
+```bash
+cargo build --release --workspace
+./target/release/chrononode-cli init
+./target/release/chrononode-cli ingest --chain mock --from 0
+./target/release/chrononode-cli query block --chain mock --height 0
+./target/release/chrononode-cli prove --chain mock --height 0
+```
+
+## First Supported Network
+
+BaaLS is the first reference adapter. ChronoNode is not limited to BaaLS; additional networks can be supported through the ChainAdapter interface.
+
+## MVP Flow
+
+```
+BaaLS block → ChronoBlock protobuf → IPFS/local storage → SQLite index → query API → Merkle proof
 ```
 
 ## Project Structure
 
-- `chrononode_archival_client/` - Main project directory
-  - `src/` - Source code
-  - `Cargo.toml` - Project manifest
+```
+crates/
+├── chrononode-core/    # Models, traits, proof logic, error types (no I/O)
+└── chrononode-cli/     # CLI binary: adapters, storage, index, API, verification
+proto/                  # Protobuf schema (ChronoBlock, ChronoTx, ChronoEvent)
+tests/                  # Integration tests
+docs/                   # Architecture and design docs
+```
 
-## Contributing
+## Status
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+Early design/build phase. Not production-ready.
 
 ## License
 
-This project is licensed under the [Your License] - see the [LICENSE](LICENSE) file for details.
+MIT OR Apache-2.0

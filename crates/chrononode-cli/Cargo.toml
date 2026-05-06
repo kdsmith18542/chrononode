@@ -1,0 +1,52 @@
+[package]
+name = "chrononode-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ChronoNode CLI — archive, index, prove, and serve blockchain history"
+
+[dependencies]
+chrononode-core = { path = "../chrononode-core" }
+
+anyhow = "1"
+thiserror = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "signal", "macros"] }
+async-trait = "0.1"
+futures = "0.3"
+
+prost = "0.13"
+sha2 = "0.10"
+hex = "0.4"
+
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate"] }
+
+axum = "0.8"
+tower = { version = "0.5", features = ["util", "limit"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "limit", "auth"] }
+
+reqwest = { version = "0.12", features = ["json"] }
+
+ed25519-dalek = "2"
+rand = "0.8"
+dirs-next = "2"
+chrono = { version = "0.4", features = ["serde"] }
+
+metrics = "0.21"
+metrics-exporter-prometheus = "0.12"
+
+[build-dependencies]
+prost-build = "0.13"
+prost-types = "0.13"
+protoc-bin-vendored = "3.0"
+
+[dev-dependencies]
+tempfile = "3"
+mockito = "1"
+pretty_assertions = "1"

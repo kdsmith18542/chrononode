@@ -1,0 +1,11 @@
+services:
+  chrononode:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - chrononode-data:/root/.local/share/chrononode
+    command: ["serve", "--port", "8080"]
+
+volumes:
+  chrononode-data:

@@ -15,7 +15,12 @@ pub mod events;
 pub mod metrics;
 pub mod models;
 pub mod solana_sync;
+pub mod storage;
 pub mod validation;
+
+pub mod proto {
+    include!(concat!(env!("OUT_DIR"), "/chrononode.rs"));
+}
 
 // Re-export commonly used types
 pub use events::{
