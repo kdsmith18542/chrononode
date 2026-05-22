@@ -1,0 +1,30 @@
+[Unit]
+Description=ChronoNode API Server
+Documentation=https://github.com/chrononode/chrononode
+After=network-online.target chrononode-ingest.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=chrononode
+Group=chrononode
+ExecStart=/usr/local/bin/chrononode-cli serve --port 8080 --chain baals
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=chrononode-api
+
+# API configuration
+Environment=CHRONONODE_API_KEY=your_api_key_here
+Environment=CHRONONODE_STORAGE_BACKEND=local_fs
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/chrononode
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chrononode-config
+  labels:
+    app: chrononode
+data:
+  CHRONONODE_S3_BUCKET: "chrononode-blocks"
+  CHRONONODE_S3_REGION: "us-east-1"
+  CHRONONODE_S3_ENDPOINT: "http://minio:9000"
+  CHRONONODE_IPFS_API_URL: "http://ipfs:5001"
+  CHRONONODE_DATA_DIR: "/data"
+  RUST_LOG: "info"

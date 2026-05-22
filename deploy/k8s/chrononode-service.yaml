@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: chrononode-api
+  labels:
+    app: chrononode
+    component: api
+spec:
+  selector:
+    app: chrononode
+    component: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chrononode-data
+  labels:
+    app: chrononode
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi

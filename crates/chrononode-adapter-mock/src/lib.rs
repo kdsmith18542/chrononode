@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use chrononode_core::{BlockModel, ChainAdapter, ChronoBlock, ChronoEvent, ChronoTx, Result};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 pub struct MockAdapter {
     chain_id: String,
@@ -62,6 +63,12 @@ impl MockAdapter {
     }
 }
 
+impl Default for MockAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl ChainAdapter for MockAdapter {
     fn chain_id(&self) -> &str {
@@ -88,4 +95,10 @@ impl ChainAdapter for MockAdapter {
         let height = u64::from_be_bytes(hash[24..32].try_into().unwrap_or([0; 8]));
         Ok(self.generate_block(height))
     }
+}
+
+pub fn init() {
+    chrononode_adapter_sdk::registry::register("mock", "Mock Chain", |_config| {
+        Ok(Arc::new(MockAdapter::new()))
+    });
 }

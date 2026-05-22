@@ -1,0 +1,20 @@
+[Unit]
+Description=ChronoNode API server (%i)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=chrononode
+Group=chrononode
+Environment=XDG_DATA_HOME=/var/lib
+EnvironmentFile=-/etc/chrononode/chrononode.env
+ExecStart=/usr/local/bin/chrononode serve --chain %i --port 8080 --rate-limit 100
+Restart=always
+RestartSec=5
+LimitNOFILE=1048576
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chrononode-sdk"
+version = "0.1.0"
+description = "Lightweight Python client SDK for querying ChronoNode API and verifying Merkle proofs client-side"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "requests>=2.25.0",
+    "cryptography>=40.0.0",
+]
+
+[project.optional-dependencies]
+pandas = [
+    "pandas>=1.0.0",
+]
+dev = [
+    "pandas>=1.0.0",
+    "pytest>=7.0.0",
+]

@@ -1,0 +1,33 @@
+[Unit]
+Description=ChronoNode Block Ingestion Service
+Documentation=https://github.com/chrononode/chrononode
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=chrononode
+Group=chrononode
+ExecStart=/usr/local/bin/chrononode-cli ingest --chain baals --from 0 --follow
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=chrononode-ingest
+
+# Storage backend configuration (override as needed)
+Environment=CHRONONODE_STORAGE_BACKEND=local_fs
+# Environment=CHRONONODE_STORAGE_BACKEND=ipfs
+# Environment=CHRONONODE_IPFS_API_URL=http://127.0.0.1:5001
+# Environment=CHRONONODE_STORAGE_BACKEND=pinata
+# Environment=CHRONONODE_PINATA_JWT=your_jwt_here
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/chrononode
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

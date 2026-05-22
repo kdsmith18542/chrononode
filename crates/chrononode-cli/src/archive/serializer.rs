@@ -24,24 +24,32 @@ fn block_to_proto(block: &ChronoBlock) -> crate::proto::ChronoBlock {
         timestamp: block.timestamp,
         block_model: block.block_model.clone(),
         hash_algorithm: block.hash_algorithm.clone(),
-        transactions: block.transactions.iter().map(|tx| crate::proto::ChronoTx {
-            tx_hash: tx.tx_hash.clone(),
-            sender: tx.sender.clone(),
-            recipient: tx.recipient.clone(),
-            amount: tx.amount,
-            nonce: tx.nonce,
-            payload: tx.payload.clone(),
-            gas_limit: tx.gas_limit,
-            gas_used: tx.gas_used,
-            extra_data: tx.extra_data.clone(),
-        }).collect(),
-        events: block.events.iter().map(|ev| crate::proto::ChronoEvent {
-            event_type: ev.event_type.clone(),
-            emitter: ev.emitter.clone(),
-            tx_index: ev.tx_index,
-            event_index: ev.event_index,
-            payload: ev.payload.clone(),
-        }).collect(),
+        transactions: block
+            .transactions
+            .iter()
+            .map(|tx| crate::proto::ChronoTx {
+                tx_hash: tx.tx_hash.clone(),
+                sender: tx.sender.clone(),
+                recipient: tx.recipient.clone(),
+                amount: tx.amount,
+                nonce: tx.nonce,
+                payload: tx.payload.clone(),
+                gas_limit: tx.gas_limit,
+                gas_used: tx.gas_used,
+                extra_data: tx.extra_data.clone(),
+            })
+            .collect(),
+        events: block
+            .events
+            .iter()
+            .map(|ev| crate::proto::ChronoEvent {
+                event_type: ev.event_type.clone(),
+                emitter: ev.emitter.clone(),
+                tx_index: ev.tx_index,
+                event_index: ev.event_index,
+                payload: ev.payload.clone(),
+            })
+            .collect(),
         extra_data: block.extra_data.clone(),
     }
 }
@@ -56,24 +64,32 @@ fn proto_to_block(proto: &crate::proto::ChronoBlock) -> Result<ChronoBlock> {
         timestamp: proto.timestamp,
         block_model: proto.block_model.clone(),
         hash_algorithm: proto.hash_algorithm.clone(),
-        transactions: proto.transactions.iter().map(|tx| chrononode_core::ChronoTx {
-            tx_hash: tx.tx_hash.clone(),
-            sender: tx.sender.clone(),
-            recipient: tx.recipient.clone(),
-            amount: tx.amount,
-            nonce: tx.nonce,
-            payload: tx.payload.clone(),
-            gas_limit: tx.gas_limit,
-            gas_used: tx.gas_used,
-            extra_data: tx.extra_data.clone(),
-        }).collect(),
-        events: proto.events.iter().map(|ev| chrononode_core::ChronoEvent {
-            event_type: ev.event_type.clone(),
-            emitter: ev.emitter.clone(),
-            tx_index: ev.tx_index,
-            event_index: ev.event_index,
-            payload: ev.payload.clone(),
-        }).collect(),
+        transactions: proto
+            .transactions
+            .iter()
+            .map(|tx| chrononode_core::ChronoTx {
+                tx_hash: tx.tx_hash.clone(),
+                sender: tx.sender.clone(),
+                recipient: tx.recipient.clone(),
+                amount: tx.amount,
+                nonce: tx.nonce,
+                payload: tx.payload.clone(),
+                gas_limit: tx.gas_limit,
+                gas_used: tx.gas_used,
+                extra_data: tx.extra_data.clone(),
+            })
+            .collect(),
+        events: proto
+            .events
+            .iter()
+            .map(|ev| chrononode_core::ChronoEvent {
+                event_type: ev.event_type.clone(),
+                emitter: ev.emitter.clone(),
+                tx_index: ev.tx_index,
+                event_index: ev.event_index,
+                payload: ev.payload.clone(),
+            })
+            .collect(),
         extra_data: proto.extra_data.clone(),
     })
 }

@@ -77,12 +77,16 @@ fn build_tree_levels(leaves: &[[u8; 32]]) -> Vec<Vec<[u8; 32]>> {
         return vec![];
     }
     let mut levels = vec![leaves.to_vec()];
-    while levels.last().map_or(false, |l| l.len() > 1) {
+    while levels.last().is_some_and(|l| l.len() > 1) {
         let prev = levels.last().unwrap();
-        let mut next = Vec::with_capacity((prev.len() + 1) / 2);
+        let mut next = Vec::with_capacity(prev.len().div_ceil(2));
         for chunk in prev.chunks(2) {
             let left = &chunk[0];
-            let right = if chunk.len() > 1 { &chunk[1] } else { &chunk[0] };
+            let right = if chunk.len() > 1 {
+                &chunk[1]
+            } else {
+                &chunk[0]
+            };
             next.push(hash_pair(left, right));
         }
         levels.push(next);
@@ -110,7 +114,7 @@ pub fn generate_proof(leaves: &[MerkleLeaf], target_index: usize) -> Option<Merk
     let mut siblings = Vec::new();
     let mut idx = target_index;
     for level in &levels[..levels.len() - 1] {
-        if idx % 2 == 0 {
+        if idx.is_multiple_of(2) {
             if idx + 1 < level.len() {
                 siblings.push(ProofSibling {
                     position: SiblingPosition::Right,
@@ -143,18 +147,117 @@ pub fn generate_proof(leaves: &[MerkleLeaf], target_index: usize) -> Option<Merk
 
 pub fn verify_proof(proof: &MerkleProof) -> bool {
     let mut current = proof.leaf.leaf_hash();
-    let mut idx = proof.leaf_index;
     for sibling in &proof.siblings {
         current = match sibling.position {
             SiblingPosition::Left => hash_pair(&sibling.hash, &current),
             SiblingPosition::Right => hash_pair(&current, &sibling.hash),
         };
-        idx /= 2;
     }
     current == proof.checkpoint_root
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProofJson {
+    pub version: String,
+    pub chain_id: String,
+    pub height: u64,
+    pub block_hash: String,
+    pub storage_backend: String,
+    pub storage_pointer: String,
+    pub checkpoint: CheckpointJson,
+    pub proof: Vec<ProofSiblingJson>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CheckpointJson {
+    pub checkpoint_id: String,
+    pub start_height: u64,
+    pub end_height: u64,
+    pub root: String,
+    pub signer_pubkey: Option<String>,
+    pub signature: Option<String>,
+    pub anchored_chain_id: Option<String>,
+    pub anchored_tx_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProofSiblingJson {
+    pub position: String,
+    pub hash: String,
+}
+
+pub fn verify_proof_json(proof_json: &ProofJson) -> bool {
+    let leaf = MerkleLeaf {
+        chain_id: proof_json.chain_id.clone(),
+        height: proof_json.height,
+        block_hash: hex::decode(&proof_json.block_hash).unwrap_or_default(),
+        storage_backend: proof_json.storage_backend.clone(),
+        storage_pointer: proof_json.storage_pointer.clone(),
+    };
+    let root = hex::decode(&proof_json.checkpoint.root).unwrap_or_default();
+    let root_arr: [u8; 32] = match root.try_into() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let siblings: Vec<ProofSibling> = proof_json
+        .proof
+        .iter()
+        .map(|s| {
+            let hash = hex::decode(&s.hash).unwrap_or_default();
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&hash);
+            ProofSibling {
+                position: if s.position == "left" {
+                    SiblingPosition::Left
+                } else {
+                    SiblingPosition::Right
+                },
+                hash: arr,
+            }
+        })
+        .collect();
+    let proof = MerkleProof {
+        leaf,
+        siblings,
+        checkpoint_root: root_arr,
+        leaf_index: proof_json.height,
+        tree_size: proof_json.checkpoint.end_height - proof_json.checkpoint.start_height + 1,
+    };
+
+    if !verify_proof(&proof) {
+        return false;
+    }
+
+    if let (Some(pubkey_hex), Some(sig_hex)) = (
+        &proof_json.checkpoint.signer_pubkey,
+        &proof_json.checkpoint.signature,
+    ) {
+        let pubkey_bytes = match hex::decode(pubkey_hex) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        let sig_bytes = match hex::decode(sig_hex) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        let pubkey_arr: [u8; 32] = match pubkey_bytes.try_into() {
+            Ok(a) => a,
+            Err(_) => return false,
+        };
+        let sig_arr: [u8; 64] = match sig_bytes.try_into() {
+            Ok(a) => a,
+            Err(_) => return false,
+        };
+        if !crate::signing::verify_signature(&pubkey_arr, &sig_arr, &root_arr) {
+            return false;
+        }
+    }
+
+    true
+}
+
 #[cfg(test)]
+
 mod tests {
     use super::*;
 
@@ -188,7 +291,7 @@ mod tests {
         for size in [1usize, 2, 3, 10, 100, 101] {
             let leaves: Vec<MerkleLeaf> = (0..size).map(make_leaf).collect();
             for i in [0, 1, size / 2, size - 1] {
-                let idx = i as usize;
+                let idx = i;
                 if idx < size {
                     let proof = generate_proof(&leaves, idx).unwrap();
                     assert!(verify_proof(&proof), "size={} index={} failed", size, idx);
@@ -228,11 +331,78 @@ mod tests {
     fn test_odd_size_trees() {
         for size in [1usize, 3, 5, 7, 99, 101] {
             let leaves: Vec<MerkleLeaf> = (0..size).map(make_leaf).collect();
-            let root = merkle_root(&leaves).unwrap();
             for i in 0..size {
                 let proof = generate_proof(&leaves, i).unwrap();
                 assert!(verify_proof(&proof), "odd size {} index {}", size, i);
             }
+        }
+    }
+
+    use proptest::prelude::*;
+
+    fn make_random_leaf(
+        chain_id: String,
+        height: u64,
+        block_hash: Vec<u8>,
+        storage_backend: String,
+        storage_pointer: String,
+    ) -> MerkleLeaf {
+        MerkleLeaf {
+            chain_id,
+            height,
+            block_hash,
+            storage_backend,
+            storage_pointer,
+        }
+    }
+
+    prop_compose! {
+        fn arb_leaf()(
+            chain_id in "[a-zA-Z0-9]{3,10}",
+            height in 0u64..100_000,
+            block_hash in prop::collection::vec(any::<u8>(), 32),
+            storage_backend in "[a-z_]{3,10}",
+            storage_pointer in "[a-zA-Z0-9/._-]{5,30}",
+        ) -> MerkleLeaf {
+            make_random_leaf(chain_id, height, block_hash, storage_backend, storage_pointer)
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_merkle_proof_verification_properties(
+            leaves in prop::collection::vec(arb_leaf(), 1..100),
+            target_idx in any::<usize>(),
+        ) {
+            let n = leaves.len();
+            let idx = target_idx % n;
+            let root = merkle_root(&leaves).unwrap();
+            let proof = generate_proof(&leaves, idx).unwrap();
+
+            // Property 1: Roundtrip proof verification passes
+            prop_assert!(verify_proof(&proof));
+            prop_assert_eq!(proof.checkpoint_root, root);
+            prop_assert_eq!(proof.leaf_index, idx as u64);
+            prop_assert_eq!(proof.tree_size, n as u64);
+
+            // Property 2: Mutating the leaf hash/fields causes verification to fail
+            let mut invalid_proof = proof.clone();
+            invalid_proof.leaf.block_hash[0] ^= 0xff;
+            prop_assert!(!verify_proof(&invalid_proof));
+
+            // Property 3: Mutating any sibling hash in the proof causes verification to fail
+            if !proof.siblings.is_empty() {
+                let mut invalid_proof = proof.clone();
+                if let Some(sibling) = invalid_proof.siblings.get_mut(0) {
+                    sibling.hash[0] ^= 0xff;
+                }
+                prop_assert!(!verify_proof(&invalid_proof));
+            }
+
+            // Property 4: If we change the checkpoint root, it shouldn't verify
+            let mut invalid_proof = proof.clone();
+            invalid_proof.checkpoint_root[0] ^= 0xff;
+            prop_assert!(!verify_proof(&invalid_proof));
         }
     }
 }

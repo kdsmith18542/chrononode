@@ -1,5 +1,5 @@
+use chrononode_adapter_mock::MockAdapter;
 use chrononode_core::ChainAdapter;
-use chrononode_cli::adapters::mock::MockAdapter;
 
 #[tokio::test]
 async fn test_mock_adapter_basic() {

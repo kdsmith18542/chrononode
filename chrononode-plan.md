@@ -1340,7 +1340,7 @@ That gives ChronoNode a real identity, a practical build path, and a credible fu
 | Phase 0 — Repository Cleanup | ✅ Complete | Old code quarantined to `legacy-v1/`, Cargo workspace created, CI configured, docs written |
 | Phase 1 — Local Archival Loop | ✅ Complete | Core types, protobuf, ChainAdapter/StorageBackend traits, SQLite index, mock adapter, local FS storage, Merkle proofs, CLI, Docker, tests |
 | Phase 2 — BaaLS Adapter | ✅ Complete | JSON-RPC implementation: `baals_getBlockByHeight`, `baals_getBlockByHash`, `baals_blockNumber` |
-| Phase 3 — IPFS/Pinata Storage | 🟡 Skeleton | Backend traits wired; production implementation deferred |
+| Phase 3 — IPFS/Pinata Storage | ✅ Complete | Implemented IPFS and Pinata backends (`put/get/pin/health_check`) with content-hash verification on retrieval |
 | Phase 4 — Minimal HTTP API | ✅ Complete | Axum server with `/health`, `/v1/chains`, `/v1/chains/{id}/blocks/{height}`, range query, proof verification, metrics |
 | Phase 5 — Production Hardening | ✅ Complete | Tracing, metrics endpoint, API key auth, config example, backup/restore CLI, verify-archive command, rate limiting |
 | Phase 6 — Event/Tx Indexing | ✅ Complete | `indexed_txns` + `indexed_events` tables, query by sender/recipient/event-type, CLI commands |
@@ -1349,9 +1349,9 @@ That gives ChronoNode a real identity, a practical build path, and a credible fu
 ### Test Results
 
 ```
-13 tests passing:
+16 tests passing:
   - chrononode-core: 6 tests (Merkle proofs, domain separation, odd-size trees)
-  - chrononode-cli integration: 7 tests (serialization, local FS, archival flow, adapter contract)
+  - chrononode-cli integration: 10 tests (serialization, local FS, archival flow, adapter contract, IPFS/Pinata backends)
 ```
 
 ### Key Files
@@ -1363,6 +1363,8 @@ That gives ChronoNode a real identity, a practical build path, and a credible fu
 | `crates/chrononode-core/src/proof.rs` | Length-prefixed Merkle proof system |
 | `crates/chrononode-cli/src/adapters/mock.rs` | Deterministic mock chain |
 | `crates/chrononode-cli/src/adapters/baals.rs` | BaaLS JSON-RPC adapter |
+| `crates/chrononode-cli/src/storage/ipfs.rs` | IPFS backend implementation (`put/get/pin/health_check`) |
+| `crates/chrononode-cli/src/storage/pinata.rs` | Pinata backend implementation (`put/get/pin/health_check`) |
 | `crates/chrononode-cli/src/index/sqlite.rs` | SQLite index with all tables |
 | `crates/chrononode-cli/src/api/http.rs` | Axum HTTP API with auth + metrics |
 | `crates/chrononode-cli/src/main.rs` | CLI entry point with all commands |

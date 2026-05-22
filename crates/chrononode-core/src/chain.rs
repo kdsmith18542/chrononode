@@ -1,6 +1,7 @@
 use crate::block::ChronoBlock;
 use crate::Result;
 use async_trait::async_trait;
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockModel {
@@ -18,11 +19,10 @@ pub struct StoragePointer {
 
 impl StoragePointer {
     pub fn new(backend: impl Into<String>, key: impl Into<String>) -> Self {
-        Self { backend: backend.into(), key: key.into() }
-    }
-
-    pub fn to_string(&self) -> String {
-        format!("{}:{}", self.backend, self.key)
+        Self {
+            backend: backend.into(),
+            key: key.into(),
+        }
     }
 
     pub fn from_string(s: &str) -> Option<Self> {
@@ -31,6 +31,12 @@ impl StoragePointer {
             backend: s[..colon].to_string(),
             key: s[colon + 1..].to_string(),
         })
+    }
+}
+
+impl fmt::Display for StoragePointer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.backend, self.key)
     }
 }
 

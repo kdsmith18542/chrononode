@@ -1,7 +1,10 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "chrononode", about = "Independent verifiable archival layer for blockchain history")]
+#[command(
+    name = "chrononode",
+    about = "Independent verifiable archival layer for blockchain history"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -35,6 +38,10 @@ pub enum Commands {
         /// Re-archive already-indexed blocks
         #[arg(long, default_value_t = false)]
         force: bool,
+
+        /// Index backend to use (sqlite, postgres)
+        #[arg(long)]
+        index_backend: Option<String>,
     },
 
     /// Query archived data
@@ -96,6 +103,10 @@ pub enum Commands {
         #[arg(long, default_value_t = 8080)]
         port: u16,
 
+        /// Default chain served by this node (mock, baals)
+        #[arg(long, default_value = "mock")]
+        chain: String,
+
         /// Optional API key for authentication
         #[arg(long)]
         api_key: Option<String>,
@@ -103,6 +114,10 @@ pub enum Commands {
         /// Rate limit (requests per second)
         #[arg(long, default_value_t = 100)]
         rate_limit: u64,
+
+        /// Index backend to use (sqlite, postgres)
+        #[arg(long)]
+        index_backend: Option<String>,
     },
 
     /// Backup the SQLite index database
@@ -132,6 +147,59 @@ pub enum Commands {
         /// Chain identifier
         #[arg(long)]
         chain: String,
+    },
+
+    /// List registered adapters
+    Adapters,
+
+    /// Create a Merkle checkpoint for a block range
+    Checkpoint {
+        #[command(subcommand)]
+        action: CheckpointAction,
+    },
+
+    /// Export a checkpoint to JSON
+    ExportCheckpoint {
+        /// Checkpoint ID (e.g., baals-0-999)
+        #[arg(long)]
+        id: String,
+
+        /// Output file path (prints to stdout if not specified)
+        #[arg(long)]
+        out: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CheckpointAction {
+    /// Create a new checkpoint for a block range
+    Create {
+        /// Chain identifier
+        #[arg(long)]
+        chain: String,
+
+        /// Start height
+        #[arg(long)]
+        from: u64,
+
+        /// End height (inclusive)
+        #[arg(long)]
+        to: u64,
+    },
+
+    /// Anchor a checkpoint to an external chain
+    Anchor {
+        /// Chain identifier (the chain the blocks belong to)
+        #[arg(long)]
+        chain: String,
+
+        /// Checkpoint ID (e.g., baals-0-999)
+        #[arg(long)]
+        id: String,
+
+        /// Transaction hash on the anchor chain (hex)
+        #[arg(long)]
+        tx_hash: String,
     },
 }
 

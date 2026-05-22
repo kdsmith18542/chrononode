@@ -1,0 +1,12 @@
+[package]
+name = "chrononode-adapter-mock"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ChronoNode mock adapter for deterministic testing"
+
+[dependencies]
+chrononode-core = { path = "../chrononode-core" }
+chrononode-adapter-sdk = { path = "../chrononode-adapter-sdk" }
+async-trait = "0.1"
+sha2 = "0.10"

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use chrononode_core::{Result, StorageBackend, StorageHealth, StoragePointer};
 use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub struct LocalFsBackend {
     base_path: PathBuf,
@@ -54,7 +54,11 @@ impl StorageBackend for LocalFsBackend {
         Ok(StorageHealth {
             healthy: ok,
             latency_ms: 0,
-            message: if ok { "OK".to_string() } else { "path missing".to_string() },
+            message: if ok {
+                "OK".to_string()
+            } else {
+                "path missing".to_string()
+            },
         })
     }
 }

@@ -1,11 +1,116 @@
 services:
-  chrononode:
+  chrononode-ingest:
     build: .
+    restart: unless-stopped
+    environment:
+      CHRONONODE_CHAIN: ${CHRONONODE_CHAIN:-mock}
+      CHRONONODE_STORAGE_BACKEND: ${CHRONONODE_STORAGE_BACKEND:-local_fs}
+      CHRONONODE_IPFS_API_URL: ${CHRONONODE_IPFS_API_URL:-http://ipfs:5001}
+      CHRONONODE_PINATA_API_BASE: ${CHRONONODE_PINATA_API_BASE:-https://api.pinata.cloud}
+      CHRONONODE_PINATA_GATEWAY_BASE: ${CHRONONODE_PINATA_GATEWAY_BASE:-https://gateway.pinata.cloud}
+      CHRONONODE_PINATA_JWT: ${CHRONONODE_PINATA_JWT:-}
+      CHRONONODE_INDEX_BACKEND: ${CHRONONODE_INDEX_BACKEND:-sqlite}
+      CHRONONODE_POSTGRES_URL: ${CHRONONODE_POSTGRES_URL:-postgres://chrononode:chrononode@postgres:5432/chrononode}
+    volumes:
+      - chrononode-data:/home/chrononode/.local/share/chrononode
+    command: ["ingest", "--chain", "${CHRONONODE_CHAIN:-mock}", "--from", "0", "--follow"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["default", "postgres"]
+
+  chrononode-api:
+    build: .
+    restart: unless-stopped
     ports:
       - "8080:8080"
+    environment:
+      CHRONONODE_CHAIN: ${CHRONONODE_CHAIN:-mock}
+      CHRONONODE_STORAGE_BACKEND: ${CHRONONODE_STORAGE_BACKEND:-local_fs}
+      CHRONONODE_IPFS_API_URL: ${CHRONONODE_IPFS_API_URL:-http://ipfs:5001}
+      CHRONONODE_PINATA_API_BASE: ${CHRONONODE_PINATA_API_BASE:-https://api.pinata.cloud}
+      CHRONONODE_PINATA_GATEWAY_BASE: ${CHRONONODE_PINATA_GATEWAY_BASE:-https://gateway.pinata.cloud}
+      CHRONONODE_PINATA_JWT: ${CHRONONODE_PINATA_JWT:-}
+      CHRONONODE_API_KEY: ${CHRONONODE_API_KEY:-}
+      CHRONONODE_INDEX_BACKEND: ${CHRONONODE_INDEX_BACKEND:-sqlite}
+      CHRONONODE_POSTGRES_URL: ${CHRONONODE_POSTGRES_URL:-postgres://chrononode:chrononode@postgres:5432/chrononode}
     volumes:
-      - chrononode-data:/root/.local/share/chrononode
-    command: ["serve", "--port", "8080"]
+      - chrononode-data:/home/chrononode/.local/share/chrononode
+    command:
+      [
+        "serve",
+        "--chain",
+        "${CHRONONODE_CHAIN:-mock}",
+        "--port",
+        "8080",
+        "--rate-limit",
+        "${CHRONONODE_RATE_LIMIT:-100}"
+      ]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      chrononode-ingest:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    profiles: ["default", "postgres"]
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chrononode
+      POSTGRES_PASSWORD: chrononode
+      POSTGRES_DB: chrononode
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chrononode"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    profiles: ["postgres"]
+
+  ipfs:
+    image: ipfs/kubo:latest
+    profiles: ["ipfs"]
+    restart: unless-stopped
+    volumes:
+      - ipfs-data:/data/ipfs
+    ports:
+      - "4001:4001"
+      - "5001:5001"
+      - "8081:8080"
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    profiles: ["monitoring"]
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning
+      - ./deploy/grafana/chrononode-dashboard.json:/var/lib/grafana/dashboards/chrononode-dashboard.json
+      - grafana-data:/var/lib/grafana
+    profiles: ["monitoring"]
 
 volumes:
   chrononode-data:
+  ipfs-data:
+  postgres-data:
+  prometheus-data:
+  grafana-data:

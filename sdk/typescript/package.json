@@ -1,0 +1,24 @@
+{
+  "name": "chrononode-sdk",
+  "version": "0.1.0",
+  "description": "Lightweight TypeScript client SDK for querying ChronoNode API and verifying Merkle proofs client-side",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test dist/tests/sdk.test.js"
+  },
+  "keywords": [
+    "chrononode",
+    "sdk",
+    "blockchain",
+    "merkle-proof",
+    "spv"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

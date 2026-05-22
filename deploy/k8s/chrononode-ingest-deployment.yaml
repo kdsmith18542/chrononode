@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chrononode-ingest
+  labels:
+    app: chrononode
+    component: ingest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chrononode
+      component: ingest
+  template:
+    metadata:
+      labels:
+        app: chrononode
+        component: ingest
+    spec:
+      containers:
+        - name: ingest
+          image: chrononode:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - ingest
+            - --chain
+            - baals
+            - --from
+            - "0"
+            - --follow
+          envFrom:
+            - configMapRef:
+                name: chrononode-config
+          env:
+            - name: CHRONONODE_OPERATOR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: chrononode-secrets
+                  key: operator_key
+                  optional: true
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: chrononode-data

@@ -1,0 +1,23 @@
+[package]
+name = "chrononode-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Lightweight Rust client SDK for querying ChronoNode API and verifying Merkle proofs client-side"
+
+[dependencies]
+chrononode-core = { path = "../chrononode-core" }
+reqwest = { version = "0.13", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+chrononode-cli = { path = "../chrononode-cli" }
+chrononode-adapter-mock = { path = "../chrononode-adapter-mock" }
+tempfile = "3"
+axum = "0.8"
+hex = "0.4"
+

@@ -1,7 +1,12 @@
 [workspace]
 members = [
     "crates/chrononode-core",
+    "crates/chrononode-adapter-sdk",
+    "crates/chrononode-adapter-mock",
+    "crates/chrononode-adapter-baals",
+    "crates/chrononode-adapter-localfile",
     "crates/chrononode-cli",
+    "crates/chrononode-sdk",
 ]
 resolver = "2"
 

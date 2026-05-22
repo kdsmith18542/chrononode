@@ -1,3 +1,3 @@
 pub mod http;
 
-pub use http::{build_router, ApiState, MetricsState};
+pub use http::{build_router, ApiState, RateLimiter};

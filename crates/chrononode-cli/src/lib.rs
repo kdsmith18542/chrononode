@@ -1,8 +1,8 @@
-pub mod adapters;
 pub mod api;
 pub mod archive;
 pub mod cli;
 pub mod index;
+pub mod metrics;
 pub mod storage;
 pub mod verification;
 

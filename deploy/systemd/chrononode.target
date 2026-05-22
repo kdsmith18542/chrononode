@@ -1,0 +1,13 @@
+[Unit]
+Description=ChronoNode Verifiable Archival Layer
+Documentation=https://github.com/chrononode/chrononode
+After=network-online.target
+Requires=chrononode-ingest.service chrononode-api.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+
+[Install]
+WantedBy=multi-user.target

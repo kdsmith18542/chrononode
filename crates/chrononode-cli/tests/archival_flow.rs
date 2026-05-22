@@ -1,10 +1,10 @@
+use chrononode_adapter_mock::MockAdapter;
+use chrononode_cli::archive::serializer::{deserialize_block, serialize_block};
+use chrononode_cli::storage::local_fs::LocalFsBackend;
 use chrononode_core::{
     proof::{generate_proof, merkle_root, verify_proof, MerkleLeaf},
     ChainAdapter, ChronoBlock, ChronoEvent, ChronoTx, StorageBackend,
 };
-use chrononode_cli::adapters::mock::MockAdapter;
-use chrononode_cli::archive::serializer::{deserialize_block, serialize_block};
-use chrononode_cli::storage::local_fs::LocalFsBackend;
 use tempfile::TempDir;
 
 fn make_test_block(height: u64) -> ChronoBlock {
@@ -13,7 +13,11 @@ fn make_test_block(height: u64) -> ChronoBlock {
         chain_id: "test".to_string(),
         height,
         block_hash: vec![height as u8; 32],
-        prev_hash: if height == 0 { vec![0u8; 32] } else { vec![(height - 1) as u8; 32] },
+        prev_hash: if height == 0 {
+            vec![0u8; 32]
+        } else {
+            vec![(height - 1) as u8; 32]
+        },
         timestamp: 1700000000 + height,
         block_model: "EventLedger".to_string(),
         hash_algorithm: "sha256".to_string(),

@@ -26,3 +26,6 @@ format = "json"
 [metrics]
 enabled = true
 port = 9090
+
+[adapters.baals]
+url = "http://localhost:9070"
