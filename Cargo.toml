@@ -5,6 +5,7 @@ members = [
     "crates/chrononode-adapter-mock",
     "crates/chrononode-adapter-baals",
     "crates/chrononode-adapter-localfile",
+    "crates/chrononode-adapter-bitcoin",
     "crates/chrononode-cli",
     "crates/chrononode-sdk",
 ]

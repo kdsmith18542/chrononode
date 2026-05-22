@@ -11,6 +11,7 @@ chrononode-adapter-sdk = { path = "../chrononode-adapter-sdk" }
 chrononode-adapter-mock = { path = "../chrononode-adapter-mock" }
 chrononode-adapter-baals = { path = "../chrononode-adapter-baals" }
 chrononode-adapter-localfile = { path = "../chrononode-adapter-localfile" }
+chrononode-adapter-bitcoin = { path = "../chrononode-adapter-bitcoin" }
 
 anyhow = "1"
 thiserror = "2"

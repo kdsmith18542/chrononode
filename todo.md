@@ -14,8 +14,8 @@ ChronoNode is a cutting-edge, decentralized archival and multi-chain data layer 
 
 #### 1.1. Rust-based ChronoNode Archival Clients (CACs)
 - [ ] **Bitcoin CAC Implementation**
-  - [ ] Full node sync with bitcoind RPC integration
-  - [ ] Raw block and transaction data ingestion
+  - [x] Full node sync with bitcoind RPC integration
+  - [x] Raw block and transaction data ingestion
   - [ ] UTXO set management and tracking
   - [ ] Chain reorganization handling
   - [ ] RocksDB storage optimization

@@ -23,7 +23,7 @@ pub enum Commands {
 
     /// Ingest blocks from a chain
     Ingest {
-        /// Chain identifier (mock, baals, local-file)
+        /// Chain identifier (mock, baals, local-file, bitcoin)
         #[arg(long)]
         chain: String,
 
@@ -103,7 +103,7 @@ pub enum Commands {
         #[arg(long, default_value_t = 8080)]
         port: u16,
 
-        /// Default chain served by this node (mock, baals)
+        /// Default chain served by this node (mock, baals, bitcoin)
         #[arg(long, default_value = "mock")]
         chain: String,
 

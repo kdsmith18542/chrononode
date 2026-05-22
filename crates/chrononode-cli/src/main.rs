@@ -90,6 +90,7 @@ fn init_adapters() {
     chrononode_adapter_mock::init();
     chrononode_adapter_baals::init();
     chrononode_adapter_localfile::init();
+    chrononode_adapter_bitcoin::init();
 }
 
 async fn cmd_init() -> anyhow::Result<()> {
