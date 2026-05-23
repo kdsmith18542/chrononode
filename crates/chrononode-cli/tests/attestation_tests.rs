@@ -20,6 +20,8 @@ fn make_submitter_config(api_url: &str, key_path: Option<&str>) -> CoreConfig {
             evm_rpc_url: None,
             evm_contract_address: None,
             evm_gas_limit: 1_000_000,
+            evm_private_key: None,
+            evm_chain_id: None,
         },
     }
 }

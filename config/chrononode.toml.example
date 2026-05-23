@@ -56,7 +56,7 @@ auto_submit = true
 # evm_rpc_url = "https://sepolia-rollup.arbitrum.io/rpc"
 
 # Resurgence RewardDistributor contract address
-# evm_contract_address = "0x9769038aCbD727C41cF29102BB012Ee735BD2cdd"
+# evm_contract_address = "0xCDfd46512dA68e2eD555D1d0Ac09aB1Acf38f2Ed"
 
 # Hex-encoded secp256k1 private key for signing EVM transactions (no 0x prefix)
 # Keep this file readable only by the chrononode user (chmod 600)

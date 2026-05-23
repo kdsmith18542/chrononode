@@ -5,6 +5,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+EnvironmentFile=-/etc/chrononode/evm.env
+Environment=CHRONONODE_DATA_DIR=/var/lib/chrononode
 Type=simple
 User=chrononode
 Group=chrononode

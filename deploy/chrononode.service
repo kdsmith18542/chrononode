@@ -15,7 +15,7 @@ Environment=CHRONONODE_DATA_DIR=/var/lib/chrononode
 # Store in /etc/chrononode/evm.env — chmod 600, owned by root:chrononode
 EnvironmentFile=-/etc/chrononode/evm.env
 
-ExecStart=/usr/local/bin/chrononode-cli serve
+ExecStart=/usr/local/bin/chrononode-cli serve --chain bitcoin-light
 Restart=on-failure
 RestartSec=10
 

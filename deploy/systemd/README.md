@@ -8,26 +8,26 @@ These units run ChronoNode as two services per chain:
 Example chain IDs:
 - `mock`
 - `baals`
-- `bitcoin`
+- `bitcoin-light`
 - `dogecoin`
 
 ## Prerequisites
 
-1. Binary installed at `/usr/local/bin/chrononode` (behaves same as `chrononode-cli`)
+1. Binary installed at `/usr/local/bin/chrononode-cli`
 2. Config at `/etc/chrononode/config.toml` (copy from `config/chrononode.toml.example`)
 3. Operator key at `/etc/chrononode/operator_key` (generated via `chrononode init`)
 4. BaaLS signing key at `/etc/chrononode/baals.key` (32 bytes raw ed25519 seed)
 5. Watch lists imported:
    ```bash
-   chrononode watch import --chain bitcoin --file config/watchlist-bitcoin.txt
-   chrononode watch import --chain dogecoin --file config/watchlist-dogecoin.txt
+   chrononode-cli watch import --chain bitcoin-light --file config/watchlist-bitcoin.txt
+   chrononode-cli watch import --chain dogecoin --file config/watchlist-dogecoin.txt
    ```
 
 ## Install
 
 ```bash
 # Binary
-sudo install -m 0755 target/release/chrononode-cli /usr/local/bin/chrononode
+sudo install -m 0755 target/release/chrononode-cli /usr/local/bin/chrononode-cli
 
 # User + dirs
 sudo useradd --system --home /var/lib/chrononode --create-home --shell /usr/sbin/nologin chrononode || true
@@ -47,18 +47,20 @@ sudo systemctl daemon-reload
 
 # Enable
 sudo systemctl enable --now chrononode-ingest@baals.service
-sudo systemctl enable --now chrononode-api@baals.service
-sudo systemctl enable --now chrononode-ingest@bitcoin.service
-sudo systemctl enable --now chrononode-api@bitcoin.service
+sudo systemctl enable --now chrononode-ingest@bitcoin-light.service
+sudo systemctl enable --now chrononode-ingest@dogecoin.service
+sudo systemctl enable --now chrononode.service
 ```
 
 ## Operations
 
 ```bash
 sudo systemctl status chrononode-ingest@baals.service
-sudo systemctl status chrononode-api@baals.service
+sudo systemctl status chrononode-ingest@bitcoin-light.service
+sudo systemctl status chrononode-ingest@dogecoin.service
+sudo systemctl status chrononode.service
 sudo journalctl -u chrononode-ingest@baals.service -f
-sudo journalctl -u chrononode-api@baals.service -f
+sudo journalctl -u chrononode.service -f
 ```
 
 ## Data paths

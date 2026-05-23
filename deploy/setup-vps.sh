@@ -29,6 +29,7 @@ install -m 640 -o root -g chrononode "$(dirname "$0")/../config/chrononode.testn
 echo "=== Writing EVM key environment file ==="
 cat > /etc/chrononode/evm.env << EOF
 CHRONONODE_EVM_PRIVATE_KEY=${EVM_PRIVATE_KEY}
+CHRONONODE_DATA_DIR=/var/lib/chrononode
 EOF
 chmod 600 /etc/chrononode/evm.env
 chown root:chrononode /etc/chrononode/evm.env

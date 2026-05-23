@@ -47,10 +47,10 @@ auto_submit = true
 
 # Resurgence Protocol — Arbitrum Sepolia
 evm_rpc_url = "https://sepolia-rollup.arbitrum.io/rpc"
-evm_contract_address = "0x9769038aCbD727C41cF29102BB012Ee735BD2cdd"
+evm_contract_address = "0xCDfd46512dA68e2eD555D1d0Ac09aB1Acf38f2Ed"
 evm_chain_id = 421614
 evm_gas_limit = 1000000
 
 # evm_private_key is loaded from /etc/chrononode/evm.key (see systemd EnvironmentFile)
 # Do NOT set it here — use the EnvironmentFile approach below.
-# The service reads CHRONONODE__ATTESTATION__EVM_PRIVATE_KEY from environment.
+# The service reads CHRONONODE_EVM_PRIVATE_KEY from environment.
