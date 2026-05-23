@@ -1,13 +1,16 @@
 use chrononode_adapter_sdk::registry;
 use chrononode_cli::api::http::{build_router, ApiState, RateLimiter};
 use chrononode_cli::archive::pipeline::ArchivePipeline;
-use chrononode_cli::cli::{CheckpointAction, Cli, Commands, ConfigAction, QueryAction};
+use chrononode_cli::attestation::BaalsSubmitter;
+use chrononode_cli::cli::{
+    CheckpointAction, Cli, Commands, ConfigAction, DormancyAction, QueryAction, WatchAction,
+};
 use chrononode_cli::index::{configured_index_kind, open_index, IndexKind};
 use chrononode_cli::metrics::ApiMetrics;
 use chrononode_cli::storage::{create_backend, BackendConfig, BackendKind};
 use chrononode_cli::verification::checkpoint::CheckpointBuilder;
 use chrononode_cli::verification::merkle::verify_proof_json;
-use chrononode_core::CoreConfig;
+use chrononode_core::{CoreConfig, DormancyProof};
 use clap::Parser;
 use std::path::Path;
 use std::sync::Arc;
@@ -72,15 +75,32 @@ async fn main() -> anyhow::Result<()> {
             CheckpointAction::Create { chain, from, to } => {
                 cmd_checkpoint_create(&chain, from, to).await?
             }
-            CheckpointAction::Anchor {
-                chain,
-                id,
-                tx_hash,
-            } => cmd_checkpoint_anchor(&chain, &id, &tx_hash).await?,
+            CheckpointAction::Anchor { chain, id, tx_hash } => {
+                cmd_checkpoint_anchor(&chain, &id, &tx_hash).await?
+            }
         },
         Commands::ExportCheckpoint { id, out } => {
             cmd_export_checkpoint(&id, out.as_deref()).await?
         }
+        Commands::Dormancy { action } => match action {
+            DormancyAction::Scan {
+                chain,
+                current_height,
+            } => cmd_dormancy_scan(&chain, current_height).await?,
+            DormancyAction::Status { chain, address } => {
+                cmd_dormancy_status(&chain, &address).await?
+            }
+        },
+        Commands::Watch { action } => match action {
+            WatchAction::Add {
+                chain,
+                address,
+                label,
+            } => cmd_watch_add(&chain, &address, label.as_deref()).await?,
+            WatchAction::Import { chain, file } => cmd_watch_import(&chain, &file).await?,
+            WatchAction::Remove { chain, address } => cmd_watch_remove(&chain, &address).await?,
+            WatchAction::List { chain } => cmd_watch_list(&chain).await?,
+        },
     }
 
     Ok(())
@@ -91,6 +111,8 @@ fn init_adapters() {
     chrononode_adapter_baals::init();
     chrononode_adapter_localfile::init();
     chrononode_adapter_bitcoin::init();
+    chrononode_adapter_bitcoin_light::init();
+    chrononode_adapter_doge::init();
     chrononode_adapter_ethereum::init();
 }
 
@@ -179,8 +201,8 @@ fn configured_backend_kind() -> anyhow::Result<BackendKind> {
 
 fn start_config_watcher(chain: &str, pipeline: Arc<ArchivePipeline>) {
     use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
-    use tokio::sync::mpsc;
     use std::time::Duration;
+    use tokio::sync::mpsc;
 
     let chain = chain.to_string();
     let config_path = dirs_data_dir().join("config.toml");
@@ -190,10 +212,10 @@ fn start_config_watcher(chain: &str, pipeline: Arc<ArchivePipeline>) {
     let mut watcher: RecommendedWatcher = match Watcher::new(
         move |res: Result<Event, notify::Error>| {
             if let Ok(event) = res {
-                if event.kind.is_modify() || event.kind.is_create() {
-                    if event.paths.iter().any(|p| p == &config_path_clone) {
-                        let _ = tx.blocking_send(());
-                    }
+                if (event.kind.is_modify() || event.kind.is_create())
+                    && event.paths.iter().any(|p| p == &config_path_clone)
+                {
+                    let _ = tx.blocking_send(());
                 }
             }
         },
@@ -226,7 +248,10 @@ fn start_config_watcher(chain: &str, pipeline: Arc<ArchivePipeline>) {
             tokio::time::sleep(Duration::from_millis(100)).await;
             while rx.try_recv().is_ok() {}
 
-            tracing::info!("Config change detected, reloading adapter for chain {}...", chain);
+            tracing::info!(
+                "Config change detected, reloading adapter for chain {}...",
+                chain
+            );
             let adapter_config = load_adapter_config(&chain);
             match registry::create(&chain, adapter_config) {
                 Ok(new_adapter) => {
@@ -242,14 +267,30 @@ fn start_config_watcher(chain: &str, pipeline: Arc<ArchivePipeline>) {
     });
 }
 
+fn resolve_adapter_name(chain: &str) -> String {
+    if chain == "bitcoin" {
+        let config = load_adapter_config(chain);
+        let mode = config
+            .get("mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("light");
+        if mode == "light" {
+            return "bitcoin-light".to_string();
+        }
+    }
+    chain.to_string()
+}
+
 async fn build_pipeline(
     chain: &str,
     index_backend: Option<&str>,
 ) -> anyhow::Result<Arc<ArchivePipeline>> {
     let data_dir = data_dir_for(chain);
     std::fs::create_dir_all(&data_dir)?;
-    let adapter_config = load_adapter_config(chain);
-    let adapter = registry::create(chain, adapter_config).map_err(|e| anyhow::anyhow!("{}", e))?;
+    let adapter_name = resolve_adapter_name(chain);
+    let adapter_config = load_adapter_config(&adapter_name);
+    let adapter =
+        registry::create(&adapter_name, adapter_config).map_err(|e| anyhow::anyhow!("{}", e))?;
     let backend_kind = configured_backend_kind()?;
     let backend_config = BackendConfig::from_env(data_dir.to_str().unwrap());
     let storage = create_backend(backend_kind, &backend_config);
@@ -528,14 +569,20 @@ async fn cmd_repair(chain: &str, height: u64) -> anyhow::Result<()> {
 
 fn load_config() -> CoreConfig {
     let config_path = dirs_data_dir().join("config.toml");
-    if config_path.exists() {
+    let mut config = if config_path.exists() {
         std::fs::read_to_string(&config_path)
             .ok()
             .and_then(|s| toml::from_str(&s).ok())
             .unwrap_or_default()
     } else {
         CoreConfig::default()
+    };
+    // Allow EVM private key to be supplied via environment variable so it
+    // never needs to live inside the TOML config file on disk.
+    if let Ok(pk) = std::env::var("CHRONONODE_EVM_PRIVATE_KEY") {
+        config.attestation.evm_private_key = Some(pk);
     }
+    config
 }
 
 async fn cmd_verify_archive(chain: &str, from: u64, to: u64) -> anyhow::Result<()> {
@@ -599,6 +646,247 @@ async fn cmd_stats(chain: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn cmd_watch_add(chain: &str, address: &str, label: Option<&str>) -> anyhow::Result<()> {
+    let data_dir = data_dir_for(chain);
+    std::fs::create_dir_all(&data_dir)?;
+    let db_path = data_dir.join("index.db");
+    let kind = configured_index_kind();
+    let index = open_index(kind, &db_path, "").await?;
+    index.add_watched_address(chain, address, 0, label).await?;
+    tracing::info!(
+        "Added address {} to watch list for chain {}",
+        address,
+        chain
+    );
+    println!("Watching address {} on chain {}", address, chain);
+    Ok(())
+}
+
+async fn cmd_watch_remove(chain: &str, address: &str) -> anyhow::Result<()> {
+    let data_dir = data_dir_for(chain);
+    let db_path = data_dir.join("index.db");
+    let kind = configured_index_kind();
+    let index = open_index(kind, &db_path, "").await?;
+    index.remove_watched_address(chain, address).await?;
+    tracing::info!(
+        "Removed address {} from watch list for chain {}",
+        address,
+        chain
+    );
+    println!(
+        "Removed address {} from watch list on chain {}",
+        address, chain
+    );
+    Ok(())
+}
+
+async fn cmd_watch_list(chain: &str) -> anyhow::Result<()> {
+    let data_dir = data_dir_for(chain);
+    let db_path = data_dir.join("index.db");
+    let kind = configured_index_kind();
+    let index = open_index(kind, &db_path, "").await?;
+    let addresses = index.list_watched_addresses(chain).await?;
+    if addresses.is_empty() {
+        println!("No watched addresses for chain {}", chain);
+    } else {
+        println!("Watched addresses for chain {}:", chain);
+        for (addr, block, label) in &addresses {
+            let label_str = label.as_deref().unwrap_or("-");
+            println!(
+                "  {} (added at block {}, label: {})",
+                addr, block, label_str
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn cmd_dormancy_scan(chain: &str, current_height: Option<u64>) -> anyhow::Result<()> {
+    let data_dir = data_dir_for(chain);
+    let db_path = data_dir.join("index.db");
+    let kind = configured_index_kind();
+    let index = open_index(kind, &db_path, "").await?;
+
+    let height = if let Some(h) = current_height {
+        h
+    } else {
+        let adapter_config = load_adapter_config(chain);
+        let adapter_name = resolve_adapter_name(chain);
+        let adapter = registry::create(&adapter_name, adapter_config)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        adapter.latest_height().await?
+    };
+
+    let config = load_config();
+    let dormancy_config = &config.dormancy;
+    let threshold = dormancy_config.threshold_for(chain);
+
+    let submitter = BaalsSubmitter::new(&config);
+
+    let watched = index.list_watched_addresses(chain).await?;
+    if watched.is_empty() {
+        println!("No watched addresses for chain {}", chain);
+        return Ok(());
+    }
+
+    chrononode_cli::metrics::record_watchlist_size(chain, watched.len());
+
+    println!(
+        "Scanning {} watched addresses on {} (current height: {}, threshold: {} blocks)",
+        watched.len(),
+        chain,
+        height,
+        threshold
+    );
+
+    let mut dormant_count = 0u64;
+    let mut active_count = 0u64;
+
+    for (addr, _added_at, _label) in &watched {
+        let last_seen = index.get_last_seen(chain, addr).await?;
+        let is_currently_dormant = index.get_dormancy_status(chain, addr).await?.is_some();
+
+        let (newly_dormant, dormant_since) = match last_seen {
+            Some((last_height, _)) => {
+                let blocks_since = height.saturating_sub(last_height);
+                if blocks_since >= threshold {
+                    index
+                        .set_dormant(chain, addr, last_height, threshold, height)
+                        .await?;
+                    dormant_count += 1;
+                    (!is_currently_dormant, last_height)
+                } else {
+                    if is_currently_dormant {
+                        index.clear_dormant(chain, addr).await?;
+                        tracing::info!(
+                            "Address {} is active again (last seen at block {}, {} blocks ago)",
+                            addr,
+                            last_height,
+                            blocks_since
+                        );
+                    }
+                    active_count += 1;
+                    (false, 0)
+                }
+            }
+            None => {
+                index.set_dormant(chain, addr, 0, threshold, height).await?;
+                dormant_count += 1;
+                if !is_currently_dormant {
+                    tracing::info!(
+                        "Address {} marked dormant (no activity ever recorded)",
+                        addr
+                    );
+                }
+                (!is_currently_dormant, 0)
+            }
+        };
+
+        if newly_dormant {
+            chrononode_cli::metrics::record_dormancy_detected(chain);
+        }
+
+        if newly_dormant && config.attestation.auto_submit && submitter.is_configured() {
+            let proof = DormancyProof {
+                version: "chrononode:dormancy:v1".to_string(),
+                chain_id: chain.to_string(),
+                address: addr.clone(),
+                dormant_since_block: dormant_since,
+                current_block: height,
+                threshold_blocks: threshold,
+                signer_pubkey: None,
+                signature: None,
+            };
+            match submitter
+                .submit_dormancy_proof(&proof, index.as_ref())
+                .await
+            {
+                Ok(Some(tx_hash)) => {
+                    tracing::info!("Attestation submitted: tx={}", tx_hash);
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::warn!("Failed to submit attestation: {}", e);
+                }
+            }
+        }
+    }
+
+    println!(
+        "Scan complete: {} dormant, {} active addresses on {}",
+        dormant_count, active_count, chain
+    );
+    Ok(())
+}
+
+async fn cmd_dormancy_status(chain: &str, address: &str) -> anyhow::Result<()> {
+    let data_dir = data_dir_for(chain);
+    let db_path = data_dir.join("index.db");
+    let kind = configured_index_kind();
+    let index = open_index(kind, &db_path, "").await?;
+
+    let dormant = index.get_dormancy_status(chain, address).await?;
+    let last_seen = index.get_last_seen(chain, address).await?;
+
+    match dormant {
+        Some((dormant_since_block, threshold_blocks, determined_at_block)) => {
+            println!("Dormancy status for {} on {}", address, chain);
+            println!("  Status: DORMANT");
+            println!("  Dormant since block: {}", dormant_since_block);
+            println!("  Threshold: {} blocks", threshold_blocks);
+            println!("  Determined at block: {}", determined_at_block);
+            if let Some((h, tx)) = last_seen {
+                println!("  Last activity: block {}, tx {}", h, tx);
+            }
+        }
+        None => {
+            println!("Dormancy status for {} on {}", address, chain);
+            match last_seen {
+                Some((h, tx)) => {
+                    println!("  Status: ACTIVE (last activity at block {}, tx {})", h, tx);
+                }
+                None => {
+                    println!("  Status: UNKNOWN (no activity tracked)");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn cmd_watch_import(chain: &str, file: &str) -> anyhow::Result<()> {
+    let content = std::fs::read_to_string(file)?;
+    let data_dir = data_dir_for(chain);
+    std::fs::create_dir_all(&data_dir)?;
+    let db_path = data_dir.join("index.db");
+    let kind = configured_index_kind();
+    let index = open_index(kind, &db_path, "").await?;
+
+    let mut count = 0u64;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
+            continue;
+        }
+        let (address, label) = match line.split_once(',') {
+            Some((addr, lbl)) => (addr.trim(), Some(lbl.trim())),
+            None => (line, None),
+        };
+        index.add_watched_address(chain, address, 0, label).await?;
+        count += 1;
+    }
+    tracing::info!(
+        "Imported {} addresses to watch list for chain {}",
+        count,
+        chain
+    );
+    println!(
+        "Imported {} addresses to watch list for chain {}",
+        count, chain
+    );
+    Ok(())
+}
+
 async fn cmd_adapter_list() -> anyhow::Result<()> {
     let adapters = registry::list_adapters();
     if adapters.is_empty() {
@@ -647,7 +935,9 @@ async fn cmd_txs_by_recipient(chain: &str, recipient: &str, limit: u64) -> anyho
     let postgres_url = std::env::var("CHRONONODE_POSTGRES_URL")
         .unwrap_or_else(|_| "postgres://localhost/chrononode".to_string());
     let index = open_index(kind, &db_path, &postgres_url).await?;
-    let txs = index.get_txns_by_recipient(chain, recipient, limit, 0).await?;
+    let txs = index
+        .get_txns_by_recipient(chain, recipient, limit, 0)
+        .await?;
     println!("{}", serde_json::to_string_pretty(&txs)?);
     Ok(())
 }
@@ -659,7 +949,9 @@ async fn cmd_events_by_type(chain: &str, event_type: &str, limit: u64) -> anyhow
     let postgres_url = std::env::var("CHRONONODE_POSTGRES_URL")
         .unwrap_or_else(|_| "postgres://localhost/chrononode".to_string());
     let index = open_index(kind, &db_path, &postgres_url).await?;
-    let events = index.get_events_by_type(chain, event_type, limit, 0).await?;
+    let events = index
+        .get_events_by_type(chain, event_type, limit, 0)
+        .await?;
     println!("{}", serde_json::to_string_pretty(&events)?);
     Ok(())
 }
@@ -674,11 +966,17 @@ async fn cmd_serve(
     chrononode_cli::metrics::install_prometheus_recorder();
     let pipeline = build_pipeline(chain, index_backend).await?;
     let resolved_api_key = api_key.or_else(|| std::env::var("CHRONONODE_API_KEY").ok());
+    let keypair = chrononode_core::OperatorKeypair::from_env().or_else(|| {
+        let key_path = dirs_data_dir().join("operator_key");
+        chrononode_core::OperatorKeypair::from_file(&key_path).ok()
+    });
+
     let state = Arc::new(ApiState {
         pipeline: Some(pipeline),
         metrics: ApiMetrics::new(),
         api_key: resolved_api_key,
         rate_limiter: RateLimiter::new(rate_limit.max(1)),
+        operator_keypair: keypair,
     });
     let app = build_router(state);
     let addr = format!("0.0.0.0:{}", port);
@@ -884,10 +1182,16 @@ mod tests {
         async fn latest_height(&self) -> chrononode_core::Result<u64> {
             Ok(0)
         }
-        async fn fetch_block(&self, _h: u64) -> chrononode_core::Result<chrononode_core::ChronoBlock> {
+        async fn fetch_block(
+            &self,
+            _h: u64,
+        ) -> chrononode_core::Result<chrononode_core::ChronoBlock> {
             Err(chrononode_core::CoreError::NotFound("test".to_string()))
         }
-        async fn fetch_block_by_hash(&self, _hash: &[u8]) -> chrononode_core::Result<chrononode_core::ChronoBlock> {
+        async fn fetch_block_by_hash(
+            &self,
+            _hash: &[u8],
+        ) -> chrononode_core::Result<chrononode_core::ChronoBlock> {
             Err(chrononode_core::CoreError::NotFound("test".to_string()))
         }
     }
@@ -929,7 +1233,10 @@ display_name = "Initial Version"
         let pipeline = Arc::new(ArchivePipeline::new(adapter, storage, index));
 
         // Check initial display name
-        assert_eq!(pipeline.get_adapter().await.display_name(), "Initial Version");
+        assert_eq!(
+            pipeline.get_adapter().await.display_name(),
+            "Initial Version"
+        );
 
         // 5. Start config watcher
         start_config_watcher("reload_test", Arc::clone(&pipeline));
@@ -956,5 +1263,128 @@ display_name = "Reloaded Version"
         }
 
         assert!(reloaded, "Adapter config was not reloaded successfully");
+    }
+
+    #[tokio::test]
+    async fn test_dormancy_scan_to_attestation_integration() {
+        let (index, _dir) = {
+            let dir = tempfile::tempdir().unwrap();
+            let db_path = dir.path().join("test.db");
+            let index = open_index(IndexKind::Sqlite, &db_path, "").await.unwrap();
+            (index, dir)
+        };
+
+        let chain = "bitcoin";
+        let address = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa";
+
+        index
+            .add_watched_address(chain, address, 100_000, Some("satoshi"))
+            .await
+            .unwrap();
+
+        index
+            .record_activity(
+                chain,
+                address,
+                500_000,
+                "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            )
+            .await
+            .unwrap();
+
+        let key_dir = tempfile::tempdir().unwrap();
+        let key_path = key_dir.path().join("baals.key");
+        let keypair = chrononode_core::OperatorKeypair::generate();
+        let seed = keypair.signing_key_bytes();
+        std::fs::write(&key_path, seed).unwrap();
+
+        let mut mock_server = mockito::Server::new_async().await;
+        let mock = mock_server
+            .mock("POST", "/api/v1/tx/send")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"tx_hash":"integration_tx_abc","status":"ok"}"#)
+            .expect_at_least(1)
+            .create_async()
+            .await;
+
+        let mut config = CoreConfig::default();
+        config.attestation.baals_api_url = Some(mock_server.url());
+        config.attestation.baals_key_path = Some(key_path.to_string_lossy().to_string());
+        config.attestation.auto_submit = true;
+
+        let submitter = BaalsSubmitter::new(&config);
+        assert!(submitter.is_configured());
+
+        let current_height = 526_280u64;
+        let threshold = config.dormancy.threshold_for(chain);
+
+        let watched = index.list_watched_addresses(chain).await.unwrap();
+        assert_eq!(watched.len(), 1);
+
+        let mut dormant_count = 0u64;
+
+        for (addr, _added_at, _label) in &watched {
+            let last_seen = index.get_last_seen(chain, addr).await.unwrap();
+            let is_currently_dormant = index
+                .get_dormancy_status(chain, addr)
+                .await
+                .unwrap()
+                .is_some();
+
+            match last_seen {
+                Some((last_height, _)) => {
+                    let blocks_since = current_height.saturating_sub(last_height);
+                    assert!(
+                        blocks_since >= threshold,
+                        "expected address to be dormant at this height"
+                    );
+
+                    index
+                        .set_dormant(chain, addr, last_height, threshold, current_height)
+                        .await
+                        .unwrap();
+                    dormant_count += 1;
+
+                    let newly_dormant = !is_currently_dormant;
+                    assert!(newly_dormant);
+
+                    if newly_dormant && config.attestation.auto_submit && submitter.is_configured()
+                    {
+                        let proof = DormancyProof {
+                            version: "chrononode:dormancy:v1".to_string(),
+                            chain_id: chain.to_string(),
+                            address: addr.clone(),
+                            dormant_since_block: last_height,
+                            current_block: current_height,
+                            threshold_blocks: threshold,
+                            signer_pubkey: None,
+                            signature: None,
+                        };
+                        let result = submitter
+                            .submit_dormancy_proof(&proof, index.as_ref())
+                            .await
+                            .unwrap();
+                        assert!(result.is_some(), "attestation should have been submitted");
+                    }
+                }
+                None => {
+                    panic!("expected to find last_seen for watched address");
+                }
+            }
+        }
+
+        assert_eq!(dormant_count, 1);
+
+        let dormant = index.list_dormant_addresses(chain).await.unwrap();
+        assert_eq!(dormant.len(), 1);
+        assert_eq!(dormant[0].0, address);
+
+        let attestations = index.list_attestations(chain).await.unwrap();
+        assert_eq!(attestations.len(), 1);
+        assert_eq!(attestations[0].0, address);
+        assert_eq!(attestations[0].2, Some("integration_tx_abc".to_string()));
+
+        mock.assert_async().await;
     }
 }

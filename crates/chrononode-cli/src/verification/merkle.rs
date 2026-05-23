@@ -1,7 +1,5 @@
-use chrononode_core::proof::{
-    MerkleProof, ProofSiblingJson, SiblingPosition,
-};
-pub use chrononode_core::proof::{ProofJson, CheckpointJson, verify_proof_json};
+pub use chrononode_core::proof::{verify_proof_json, CheckpointJson, ProofJson};
+use chrononode_core::proof::{MerkleProof, ProofSiblingJson, SiblingPosition};
 
 pub fn proof_to_json(
     proof: &MerkleProof,

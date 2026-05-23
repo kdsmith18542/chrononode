@@ -23,6 +23,7 @@ pub struct ApiState {
     pub metrics: ApiMetrics,
     pub api_key: Option<String>,
     pub rate_limiter: RateLimiter,
+    pub operator_keypair: Option<chrononode_core::OperatorKeypair>,
 }
 
 #[derive(Clone)]
@@ -34,7 +35,7 @@ pub struct RateLimiter {
 
 impl RateLimiter {
     pub fn new(max_per_second: u64) -> Self {
-        let max_per_second = max_per_second.max(1).min(16_777_215);
+        let max_per_second = max_per_second.clamp(1, 16_777_215);
         Self {
             max_per_second,
             baseline: Instant::now(),
@@ -145,7 +146,11 @@ async fn list_chains(
         )
     })?;
     let page = limit_query.page.unwrap_or(1).max(1);
-    let per_page = limit_query.per_page.or(limit_query.limit).unwrap_or(20).min(100);
+    let per_page = limit_query
+        .per_page
+        .or(limit_query.limit)
+        .unwrap_or(20)
+        .min(100);
     let offset = (page - 1) * per_page;
 
     let rows = pipeline
@@ -457,7 +462,11 @@ async fn get_txs_by_sender(
         )
     })?;
     let page = limit_query.page.unwrap_or(1).max(1);
-    let per_page = limit_query.per_page.or(limit_query.limit).unwrap_or(20).min(100);
+    let per_page = limit_query
+        .per_page
+        .or(limit_query.limit)
+        .unwrap_or(20)
+        .min(100);
     let offset = (page - 1) * per_page;
 
     let txs = pipeline
@@ -481,7 +490,11 @@ async fn get_txs_by_recipient(
         )
     })?;
     let page = limit_query.page.unwrap_or(1).max(1);
-    let per_page = limit_query.per_page.or(limit_query.limit).unwrap_or(20).min(100);
+    let per_page = limit_query
+        .per_page
+        .or(limit_query.limit)
+        .unwrap_or(20)
+        .min(100);
     let offset = (page - 1) * per_page;
 
     let txs = pipeline
@@ -505,7 +518,11 @@ async fn get_events_by_type(
         )
     })?;
     let page = limit_query.page.unwrap_or(1).max(1);
-    let per_page = limit_query.per_page.or(limit_query.limit).unwrap_or(20).min(100);
+    let per_page = limit_query
+        .per_page
+        .or(limit_query.limit)
+        .unwrap_or(20)
+        .min(100);
     let offset = (page - 1) * per_page;
 
     let events = pipeline
@@ -532,6 +549,239 @@ pub struct CreateCheckpointResponse {
     pub leaf_count: u64,
     pub signer_pubkey: Option<String>,
     pub signature: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct LastSeenResponse {
+    pub chain_id: String,
+    pub address: String,
+    pub last_block_height: Option<u64>,
+    pub last_tx_hash: Option<String>,
+}
+
+async fn get_address_last_seen(
+    State(state): State<Arc<ApiState>>,
+    Path((chain_id, address)): Path<(String, String)>,
+) -> ApiResult<LastSeenResponse> {
+    state.metrics.increment_requests();
+    let pipeline = state.pipeline.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pipeline not initialized".to_string(),
+        )
+    })?;
+    let last_seen = pipeline
+        .index
+        .get_last_seen(&chain_id, &address)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(LastSeenResponse {
+        chain_id,
+        address,
+        last_block_height: last_seen.as_ref().map(|(h, _)| *h),
+        last_tx_hash: last_seen.map(|(_, tx)| tx),
+    }))
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct DormancyStatusResponse {
+    pub chain_id: String,
+    pub address: String,
+    pub status: String,
+    pub dormant_since_block: Option<u64>,
+    pub threshold_blocks: Option<u64>,
+    pub determined_at_block: Option<u64>,
+    pub last_block_height: Option<u64>,
+    pub last_tx_hash: Option<String>,
+}
+
+async fn get_dormancy_status(
+    State(state): State<Arc<ApiState>>,
+    Path((chain_id, address)): Path<(String, String)>,
+) -> ApiResult<DormancyStatusResponse> {
+    state.metrics.increment_requests();
+    let pipeline = state.pipeline.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pipeline not initialized".to_string(),
+        )
+    })?;
+
+    let dormant = pipeline
+        .index
+        .get_dormancy_status(&chain_id, &address)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let last_seen = pipeline
+        .index
+        .get_last_seen(&chain_id, &address)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let (status_str, dormant_since, threshold, determined) = match dormant {
+        Some((s, t, d)) => ("dormant".to_string(), Some(s), Some(t), Some(d)),
+        None => ("active".to_string(), None, None, None),
+    };
+
+    Ok(Json(DormancyStatusResponse {
+        chain_id,
+        address,
+        status: status_str,
+        dormant_since_block: dormant_since,
+        threshold_blocks: threshold,
+        determined_at_block: determined,
+        last_block_height: last_seen.as_ref().map(|(h, _)| *h),
+        last_tx_hash: last_seen.map(|(_, tx)| tx),
+    }))
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct DormancyProofResponse {
+    #[schema(value_type = Object)]
+    pub proof: chrononode_core::DormancyProof,
+}
+
+async fn get_dormancy_proof(
+    State(state): State<Arc<ApiState>>,
+    Path((chain_id, address)): Path<(String, String)>,
+) -> ApiResult<DormancyProofResponse> {
+    state.metrics.increment_requests();
+    let pipeline = state.pipeline.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pipeline not initialized".to_string(),
+        )
+    })?;
+
+    let keypair = state.operator_keypair.clone().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "no operator keypair configured".to_string(),
+        )
+    })?;
+
+    let dormant = pipeline
+        .index
+        .get_dormancy_status(&chain_id, &address)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("address {} is not dormant on chain {}", address, chain_id),
+            )
+        })?;
+
+    let current_block = pipeline
+        .get_adapter()
+        .await
+        .latest_height()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let mut proof = chrononode_core::DormancyProof {
+        version: "chrononode:dormancy:v1".to_string(),
+        chain_id: chain_id.clone(),
+        address: address.clone(),
+        dormant_since_block: dormant.0,
+        current_block,
+        threshold_blocks: dormant.1,
+        signer_pubkey: None,
+        signature: None,
+    };
+    proof.sign(&keypair);
+
+    Ok(Json(DormancyProofResponse { proof }))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct AttestationSubmitRequest {
+    pub chain_id: String,
+    pub address: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct AttestationSubmitResponse {
+    pub status: String,
+    pub tx_hash: Option<String>,
+    pub message: String,
+}
+
+async fn submit_attestation(
+    State(state): State<Arc<ApiState>>,
+    Json(req): Json<AttestationSubmitRequest>,
+) -> ApiResult<AttestationSubmitResponse> {
+    state.metrics.increment_requests();
+    let pipeline = state.pipeline.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pipeline not initialized".to_string(),
+        )
+    })?;
+
+    let dormant = pipeline
+        .index
+        .get_dormancy_status(&req.chain_id, &req.address)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!(
+                    "address {} is not dormant on chain {}",
+                    req.address, req.chain_id
+                ),
+            )
+        })?;
+
+    let current = pipeline
+        .get_adapter()
+        .await
+        .latest_height()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let config = chrononode_core::CoreConfig::default();
+    let submitter = crate::attestation::BaalsSubmitter::new(&config);
+
+    if !submitter.is_configured() {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "BaaLS submitter not configured".to_string(),
+        ));
+    }
+
+    let proof = chrononode_core::DormancyProof {
+        version: "chrononode:dormancy:v1".to_string(),
+        chain_id: req.chain_id.clone(),
+        address: req.address.clone(),
+        dormant_since_block: dormant.0,
+        current_block: current,
+        threshold_blocks: dormant.1,
+        signer_pubkey: None,
+        signature: None,
+    };
+
+    match submitter
+        .submit_dormancy_proof(&proof, pipeline.index.as_ref())
+        .await
+    {
+        Ok(Some(tx_hash)) => Ok(Json(AttestationSubmitResponse {
+            status: "submitted".to_string(),
+            tx_hash: Some(tx_hash),
+            message: "Attestation submitted successfully".to_string(),
+        })),
+        Ok(None) => Ok(Json(AttestationSubmitResponse {
+            status: "already_exists".to_string(),
+            tx_hash: None,
+            message: "Attestation already exists for this address+block".to_string(),
+        })),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Attestation submission failed: {}", e),
+        )),
+    }
 }
 
 async fn create_checkpoint(
@@ -621,7 +871,12 @@ async fn create_checkpoint(
     RangeQuery,
     VerifyRequest,
     VerifyResponse,
-    LimitQuery
+    LimitQuery,
+    LastSeenResponse,
+    DormancyStatusResponse,
+    DormancyProofResponse,
+    AttestationSubmitRequest,
+    AttestationSubmitResponse
 )))]
 struct ApiDoc;
 
@@ -636,7 +891,9 @@ pub fn build_router(state: Arc<ApiState>) -> Router {
     .data(state.clone())
     .finish();
 
-    let rpc_impl = crate::api::rpc::ChronoRpcImpl { state: state.clone() };
+    let rpc_impl = crate::api::rpc::ChronoRpcImpl {
+        state: state.clone(),
+    };
     let rpc_module = Arc::new(ChronoRpcServer::into_rpc(rpc_impl));
 
     let mut router = Router::new()
@@ -667,6 +924,19 @@ pub fn build_router(state: Arc<ApiState>) -> Router {
             "/v1/chains/{chain_id}/events/{event_type}",
             get(get_events_by_type),
         )
+        .route(
+            "/v1/chains/{chain_id}/addresses/{address}/last-seen",
+            get(get_address_last_seen),
+        )
+        .route(
+            "/v1/chains/{chain_id}/addresses/{address}/dormancy",
+            get(get_dormancy_status),
+        )
+        .route(
+            "/v1/chains/{chain_id}/addresses/{address}/dormancy/proof",
+            get(get_dormancy_proof),
+        )
+        .route("/v1/attestations/submit", post(submit_attestation))
         .route("/metrics", get(metrics_prometheus))
         .route(
             "/graphql",

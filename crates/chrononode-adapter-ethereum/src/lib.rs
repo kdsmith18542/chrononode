@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use chrononode_adapter_sdk::retry::retry_with_backoff_predicate;
-use chrononode_core::{BlockModel, ChainAdapter, ChronoBlock, ChronoEvent, ChronoTx, CoreError, Result};
+use chrononode_core::{
+    BlockModel, ChainAdapter, ChronoBlock, ChronoEvent, ChronoTx, CoreError, Result,
+};
 use futures::{StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -119,7 +121,11 @@ impl EthereumAdapter {
         }
     }
 
-    async fn call_rpc<T: serde::de::DeserializeOwned>(&self, method: &'static str, params: serde_json::Value) -> Result<T> {
+    async fn call_rpc<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &'static str,
+        params: serde_json::Value,
+    ) -> Result<T> {
         let payload = JsonRpcRequest {
             jsonrpc: "2.0",
             id: "chrononode",
@@ -149,16 +155,18 @@ impl EthereumAdapter {
                         )));
                     }
 
-                    if !resp.status().is_success() && resp.status() != reqwest::StatusCode::BAD_REQUEST {
+                    if !resp.status().is_success()
+                        && resp.status() != reqwest::StatusCode::BAD_REQUEST
+                    {
                         return Err(FetchError::Fatal(format!(
                             "RPC request returned status {}",
                             resp.status()
                         )));
                     }
 
-                    resp.json::<JsonRpcResponse<T>>()
-                        .await
-                        .map_err(|e| FetchError::Fatal(format!("Failed to parse RPC response: {}", e)))
+                    resp.json::<JsonRpcResponse<T>>().await.map_err(|e| {
+                        FetchError::Fatal(format!("Failed to parse RPC response: {}", e))
+                    })
                 }
             },
             |e: &FetchError| matches!(e, FetchError::Retryable(_)),
@@ -166,12 +174,15 @@ impl EthereumAdapter {
         .await?;
 
         if let Some(err) = response_body.error {
-            return Err(CoreError::Adapter(format!("RPC error {}: {}", err.code, err.message)));
+            return Err(CoreError::Adapter(format!(
+                "RPC error {}: {}",
+                err.code, err.message
+            )));
         }
 
-        response_body.result.ok_or_else(|| {
-            CoreError::NotFound(format!("RPC result is null for method {}", method))
-        })
+        response_body
+            .result
+            .ok_or_else(|| CoreError::NotFound(format!("RPC result is null for method {}", method)))
     }
 
     fn decode_hex_safe(hex_str: &str) -> Vec<u8> {
@@ -232,7 +243,10 @@ impl EthereumAdapter {
         format!("0x{:x}", val)
     }
 
-    async fn fetch_receipts_parallel(&self, tx_hashes: &[String]) -> Result<HashMap<String, EthereumReceiptJson>> {
+    async fn fetch_receipts_parallel(
+        &self,
+        tx_hashes: &[String],
+    ) -> Result<HashMap<String, EthereumReceiptJson>> {
         if tx_hashes.is_empty() {
             return Ok(HashMap::new());
         }
@@ -242,7 +256,12 @@ impl EthereumAdapter {
             .map(move |tx_hash| {
                 let adapter = self_clone.clone();
                 async move {
-                    adapter.call_rpc::<EthereumReceiptJson>("eth_getTransactionReceipt", serde_json::json!([tx_hash])).await
+                    adapter
+                        .call_rpc::<EthereumReceiptJson>(
+                            "eth_getTransactionReceipt",
+                            serde_json::json!([tx_hash]),
+                        )
+                        .await
                 }
             })
             .buffer_unordered(10)
@@ -256,22 +275,31 @@ impl EthereumAdapter {
         Ok(receipt_map)
     }
 
-    fn normalize_block(&self, block: &EthereumBlockJson, receipts: &HashMap<String, EthereumReceiptJson>) -> ChronoBlock {
+    fn normalize_block(
+        &self,
+        block: &EthereumBlockJson,
+        receipts: &HashMap<String, EthereumReceiptJson>,
+    ) -> ChronoBlock {
         let mut transactions = Vec::with_capacity(block.transactions.len());
         let mut events = Vec::new();
 
         for tx in &block.transactions {
             let receipt = receipts.get(&tx.hash);
-            
+
             let recipient = if let Some(to_addr) = &tx.to {
                 Self::decode_hex_safe(to_addr)
             } else if let Some(rec) = receipt {
-                rec.contract_address.as_ref().map(|addr| Self::decode_hex_safe(addr)).unwrap_or_default()
+                rec.contract_address
+                    .as_ref()
+                    .map(|addr| Self::decode_hex_safe(addr))
+                    .unwrap_or_default()
             } else {
                 vec![]
             };
 
-            let gas_used = receipt.map(|r| Self::parse_hex_u64(&r.gas_used)).unwrap_or(0);
+            let gas_used = receipt
+                .map(|r| Self::parse_hex_u64(&r.gas_used))
+                .unwrap_or(0);
 
             transactions.push(ChronoTx {
                 tx_hash: Self::decode_hex_safe(&tx.hash),
@@ -345,19 +373,28 @@ impl ChainAdapter for EthereumAdapter {
     }
 
     async fn latest_height(&self) -> Result<u64> {
-        let height_hex: String = self.call_rpc("eth_blockNumber", serde_json::Value::Array(vec![])).await?;
+        let height_hex: String = self
+            .call_rpc("eth_blockNumber", serde_json::Value::Array(vec![]))
+            .await?;
         Ok(Self::parse_hex_u64(&height_hex))
     }
 
     async fn fetch_block(&self, height: u64) -> Result<ChronoBlock> {
         let height_hex = Self::u64_to_hex_quantity(height);
         let block_json: EthereumBlockJson = self
-            .call_rpc("eth_getBlockByNumber", serde_json::json!([height_hex, true]))
+            .call_rpc(
+                "eth_getBlockByNumber",
+                serde_json::json!([height_hex, true]),
+            )
             .await?;
-        
-        let tx_hashes: Vec<String> = block_json.transactions.iter().map(|tx| tx.hash.clone()).collect();
+
+        let tx_hashes: Vec<String> = block_json
+            .transactions
+            .iter()
+            .map(|tx| tx.hash.clone())
+            .collect();
         let receipts = self.fetch_receipts_parallel(&tx_hashes).await?;
-        
+
         Ok(self.normalize_block(&block_json, &receipts))
     }
 
@@ -366,10 +403,14 @@ impl ChainAdapter for EthereumAdapter {
         let block_json: EthereumBlockJson = self
             .call_rpc("eth_getBlockByHash", serde_json::json!([hash_hex, true]))
             .await?;
-        
-        let tx_hashes: Vec<String> = block_json.transactions.iter().map(|tx| tx.hash.clone()).collect();
+
+        let tx_hashes: Vec<String> = block_json
+            .transactions
+            .iter()
+            .map(|tx| tx.hash.clone())
+            .collect();
         let receipts = self.fetch_receipts_parallel(&tx_hashes).await?;
-        
+
         Ok(self.normalize_block(&block_json, &receipts))
     }
 }

@@ -158,6 +158,18 @@ pub enum Commands {
         action: CheckpointAction,
     },
 
+    /// Dormancy detection commands
+    Dormancy {
+        #[command(subcommand)]
+        action: DormancyAction,
+    },
+
+    /// Manage watched addresses for activity tracking
+    Watch {
+        #[command(subcommand)]
+        action: WatchAction,
+    },
+
     /// Export a checkpoint to JSON
     ExportCheckpoint {
         /// Checkpoint ID (e.g., baals-0-999)
@@ -207,6 +219,78 @@ pub enum CheckpointAction {
 pub enum ConfigAction {
     /// Print current configuration
     Show,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum DormancyAction {
+    /// Scan watched addresses and update dormancy status
+    Scan {
+        /// Chain identifier
+        #[arg(long)]
+        chain: String,
+
+        /// Current block height (fetched from adapter if not specified)
+        #[arg(long)]
+        current_height: Option<u64>,
+    },
+
+    /// Show dormancy status for a specific address
+    Status {
+        /// Chain identifier
+        #[arg(long)]
+        chain: String,
+
+        /// Address to check
+        #[arg(long)]
+        address: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum WatchAction {
+    /// Add an address to the watch list
+    Add {
+        /// Chain identifier (bitcoin, doge, ethereum, baals, etc.)
+        #[arg(long)]
+        chain: String,
+
+        /// Address to watch (hex)
+        #[arg(long)]
+        address: String,
+
+        /// Optional label for the address
+        #[arg(long)]
+        label: Option<String>,
+    },
+
+    /// Bulk import addresses from a file (one address per line, optional format: address,label)
+    Import {
+        /// Chain identifier
+        #[arg(long)]
+        chain: String,
+
+        /// Path to file with addresses (one per line)
+        #[arg(long)]
+        file: String,
+    },
+
+    /// Remove an address from the watch list
+    Remove {
+        /// Chain identifier
+        #[arg(long)]
+        chain: String,
+
+        /// Address to remove
+        #[arg(long)]
+        address: String,
+    },
+
+    /// List all watched addresses for a chain
+    List {
+        /// Chain identifier
+        #[arg(long)]
+        chain: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]

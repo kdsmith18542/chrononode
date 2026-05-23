@@ -287,8 +287,14 @@ async fn test_checkpoint_sign_export_verify_e2e() {
         .build_checkpoint(&blocks_with_pointers, "test", 0)
         .unwrap();
 
-    assert!(result.signer_pubkey.is_some(), "checkpoint should be signed");
-    assert!(result.signature.is_some(), "checkpoint should have a signature");
+    assert!(
+        result.signer_pubkey.is_some(),
+        "checkpoint should be signed"
+    );
+    assert!(
+        result.signature.is_some(),
+        "checkpoint should have a signature"
+    );
 
     // Step 3: Export a proof for block 2
     let proof = chrononode_core::proof::generate_proof(&result.leaves, 2).unwrap();

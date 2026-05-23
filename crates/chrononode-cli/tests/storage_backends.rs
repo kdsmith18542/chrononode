@@ -187,7 +187,10 @@ async fn test_arweave_backend_put_get_health() {
         .await;
 
     let backend = ArweaveBackend::new(&server.url(), &server.url());
-    let pointer = backend.put(bytes).await.expect("arweave put should succeed");
+    let pointer = backend
+        .put(bytes)
+        .await
+        .expect("arweave put should succeed");
     assert_eq!(pointer.backend, "arweave");
 
     let restored = backend
@@ -251,22 +254,20 @@ async fn test_arweave_backend_content_verification() {
 #[tokio::test]
 #[ignore = "requires a running S3-compatible server (e.g. MinIO)"]
 async fn test_s3_backend_put_get_health() {
-    let bucket = std::env::var("CHRONONODE_S3_BUCKET").unwrap_or_else(|_| "test-bucket".to_string());
+    let bucket =
+        std::env::var("CHRONONODE_S3_BUCKET").unwrap_or_else(|_| "test-bucket".to_string());
     let region = std::env::var("CHRONONODE_S3_REGION").unwrap_or_else(|_| "us-east-1".to_string());
     let endpoint = std::env::var("CHRONONODE_S3_ENDPOINT")
         .unwrap_or_else(|_| "http://127.0.0.1:9000".to_string());
 
-    let backend = S3Backend::new(&bucket, &region, Some(&endpoint))
-        .expect("S3 backend should initialize");
+    let backend =
+        S3Backend::new(&bucket, &region, Some(&endpoint)).expect("S3 backend should initialize");
 
     let bytes = b"chrononode-s3-test";
     let pointer = backend.put(bytes).await.expect("s3 put should succeed");
     assert_eq!(pointer.backend, "s3");
 
-    let restored = backend
-        .get(&pointer)
-        .await
-        .expect("s3 get should succeed");
+    let restored = backend.get(&pointer).await.expect("s3 get should succeed");
     assert_eq!(restored, bytes);
 
     let health = backend

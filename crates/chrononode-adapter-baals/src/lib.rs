@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use chrononode_adapter_sdk::retry::retry_with_backoff_predicate;
-use chrononode_core::{BlockModel, ChainAdapter, ChronoBlock, ChronoEvent, ChronoTx, CoreError, Result};
+use chrononode_core::{
+    BlockModel, ChainAdapter, ChronoBlock, ChronoEvent, ChronoTx, CoreError, Result,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -54,11 +56,26 @@ struct BaalsTransaction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum BaalsPayload {
-    Transfer { amount: u64 },
-    ContractDeploy { wasm_bytes: String, init_payload: Option<String> },
-    ContractCall { method: String, args: Vec<String>, value: Option<u64> },
-    Data { data: String },
-    ValidatorSetChange { added: Vec<String>, removed: Vec<String>, effective_height: u64 },
+    Transfer {
+        amount: u64,
+    },
+    ContractDeploy {
+        wasm_bytes: String,
+        init_payload: Option<String>,
+    },
+    ContractCall {
+        method: String,
+        args: Vec<String>,
+        value: Option<u64>,
+    },
+    Data {
+        data: String,
+    },
+    ValidatorSetChange {
+        added: Vec<String>,
+        removed: Vec<String>,
+        effective_height: u64,
+    },
 }
 
 pub struct BaalsAdapter {
@@ -159,28 +176,26 @@ impl BaalsAdapter {
             .transactions
             .iter()
             .enumerate()
-            .flat_map(|(tx_idx, tx)| {
-                match &tx.payload {
-                    BaalsPayload::ContractCall { method, .. } => {
-                        vec![ChronoEvent {
-                            event_type: "contract_call".to_string(),
-                            emitter: Self::decode_hex_safe(&tx.recipient),
-                            tx_index: tx_idx as u64,
-                            event_index: 0,
-                            payload: method.as_bytes().to_vec(),
-                        }]
-                    }
-                    BaalsPayload::ContractDeploy { .. } => {
-                        vec![ChronoEvent {
-                            event_type: "contract_deploy".to_string(),
-                            emitter: Self::decode_hex_safe(&tx.sender),
-                            tx_index: tx_idx as u64,
-                            event_index: 0,
-                            payload: vec![],
-                        }]
-                    }
-                    _ => vec![],
+            .flat_map(|(tx_idx, tx)| match &tx.payload {
+                BaalsPayload::ContractCall { method, .. } => {
+                    vec![ChronoEvent {
+                        event_type: "contract_call".to_string(),
+                        emitter: Self::decode_hex_safe(&tx.recipient),
+                        tx_index: tx_idx as u64,
+                        event_index: 0,
+                        payload: method.as_bytes().to_vec(),
+                    }]
                 }
+                BaalsPayload::ContractDeploy { .. } => {
+                    vec![ChronoEvent {
+                        event_type: "contract_deploy".to_string(),
+                        emitter: Self::decode_hex_safe(&tx.sender),
+                        tx_index: tx_idx as u64,
+                        event_index: 0,
+                        payload: vec![],
+                    }]
+                }
+                _ => vec![],
             })
             .collect();
 
@@ -237,7 +252,9 @@ impl ChainAdapter for BaalsAdapter {
 
     async fn fetch_block_by_hash(&self, hash: &[u8]) -> Result<ChronoBlock> {
         let hash_hex = hex::encode(hash);
-        let result = self.get_url(&format!("/api/v1/blocks/by_hash/{}", hash_hex)).await?;
+        let result = self
+            .get_url(&format!("/api/v1/blocks/by_hash/{}", hash_hex))
+            .await?;
         let block: BaalsBlock = serde_json::from_value(result)
             .map_err(|e| CoreError::Adapter(format!("failed to parse block: {}", e)))?;
         Ok(self.parse_block(&block))

@@ -6,6 +6,8 @@ members = [
     "crates/chrononode-adapter-baals",
     "crates/chrononode-adapter-localfile",
     "crates/chrononode-adapter-bitcoin",
+    "crates/chrononode-adapter-bitcoin-light",
+    "crates/chrononode-adapter-doge",
     "crates/chrononode-adapter-ethereum",
     "crates/chrononode-cli",
     "crates/chrononode-sdk",

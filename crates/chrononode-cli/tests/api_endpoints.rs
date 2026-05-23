@@ -42,7 +42,12 @@ fn make_test_block(height: u64) -> ChronoBlock {
             extra_data: vec![],
         }],
         events: vec![ChronoEvent {
-            event_type: if height % 2 == 0 { "transfer" } else { "swap" }.to_string(),
+            event_type: if height.is_multiple_of(2) {
+                "transfer"
+            } else {
+                "swap"
+            }
+            .to_string(),
             emitter: vec![0xaa; 32],
             tx_index: 0,
             event_index: 0,
@@ -109,6 +114,7 @@ async fn test_api_health_endpoint() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -133,6 +139,7 @@ async fn test_api_list_chains() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -160,6 +167,7 @@ async fn test_api_get_block_by_height() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -187,6 +195,7 @@ async fn test_api_get_block_not_found() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -211,6 +220,7 @@ async fn test_api_get_block_by_hash() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -232,6 +242,7 @@ async fn test_api_block_range_json() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -261,6 +272,7 @@ async fn test_api_block_range_ndjson() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -292,6 +304,7 @@ async fn test_api_block_range_too_large() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -316,6 +329,7 @@ async fn test_api_get_block_proof() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -342,6 +356,7 @@ async fn test_api_verify_proof() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -378,6 +393,7 @@ async fn test_api_txs_by_sender() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -403,6 +419,7 @@ async fn test_api_txs_by_recipient() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -427,6 +444,7 @@ async fn test_api_events_by_type() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -457,6 +475,7 @@ async fn test_api_auth_middleware_rejects_missing_key() {
         metrics: ApiMetrics::new(),
         api_key: Some("secret-key".to_string()),
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -481,6 +500,7 @@ async fn test_api_auth_middleware_accepts_valid_key() {
         metrics: ApiMetrics::new(),
         api_key: Some("secret-key".to_string()),
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -506,6 +526,7 @@ async fn test_api_openapi_docs_available() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
@@ -532,14 +553,19 @@ async fn test_api_pagination() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
     let sender_hex = hex::encode(vec![0x01; 32]);
 
     // Page 1, per_page 2 -> elements 0 and 1
-    let uri = format!("/v1/chains/mock/txs/sender/{}?page=1&per_page=2", sender_hex);
-    let response = app.clone()
+    let uri = format!(
+        "/v1/chains/mock/txs/sender/{}?page=1&per_page=2",
+        sender_hex
+    );
+    let response = app
+        .clone()
         .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
         .await
         .unwrap();
@@ -549,8 +575,12 @@ async fn test_api_pagination() {
     assert_eq!(txs1.len(), 2);
 
     // Page 2, per_page 2 -> elements 2 and 3
-    let uri = format!("/v1/chains/mock/txs/sender/{}?page=2&per_page=2", sender_hex);
-    let response = app.clone()
+    let uri = format!(
+        "/v1/chains/mock/txs/sender/{}?page=2&per_page=2",
+        sender_hex
+    );
+    let response = app
+        .clone()
         .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
         .await
         .unwrap();
@@ -563,8 +593,12 @@ async fn test_api_pagination() {
     assert_ne!(txs1[0]["tx_hash"], txs2[0]["tx_hash"]);
 
     // Page 3, per_page 2 -> element 4
-    let uri = format!("/v1/chains/mock/txs/sender/{}?page=3&per_page=2", sender_hex);
-    let response = app.clone()
+    let uri = format!(
+        "/v1/chains/mock/txs/sender/{}?page=3&per_page=2",
+        sender_hex
+    );
+    let response = app
+        .clone()
         .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
         .await
         .unwrap();
@@ -574,8 +608,12 @@ async fn test_api_pagination() {
     assert_eq!(txs3.len(), 1);
 
     // Page 4, per_page 2 -> empty
-    let uri = format!("/v1/chains/mock/txs/sender/{}?page=4&per_page=2", sender_hex);
-    let response = app.clone()
+    let uri = format!(
+        "/v1/chains/mock/txs/sender/{}?page=4&per_page=2",
+        sender_hex
+    );
+    let response = app
+        .clone()
         .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
         .await
         .unwrap();
@@ -589,7 +627,8 @@ async fn test_api_pagination() {
 async fn test_api_list_chains_pagination() {
     let (pipeline, _dir) = setup_test_state().await;
     // Register another chain so we have two chains to paginate
-    pipeline.index
+    pipeline
+        .index
         .register_chain("mock2", "Mock Chain 2", "mock", "EventLedger")
         .await
         .unwrap();
@@ -599,11 +638,13 @@ async fn test_api_list_chains_pagination() {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
     let app = build_router(state);
 
     // Page 1, per_page 1 -> returns 1 chain
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/v1/chains?page=1&per_page=1")
@@ -618,7 +659,8 @@ async fn test_api_list_chains_pagination() {
     assert_eq!(chains1.len(), 1);
 
     // Page 2, per_page 1 -> returns the second chain
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/v1/chains?page=2&per_page=1")
@@ -634,7 +676,8 @@ async fn test_api_list_chains_pagination() {
     assert_ne!(chains1[0]["chain_id"], chains2[0]["chain_id"]);
 
     // Page 3, per_page 1 -> returns empty
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/v1/chains?page=3&per_page=1")

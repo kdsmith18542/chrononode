@@ -70,7 +70,10 @@ async fn test_baals_fetch_block_by_hash() {
     let mut server = Server::new_async().await;
     let hash = "bbbb000000000000000000000000000000000000000000000000000000000000";
     let m = server
-        .mock("GET", Matcher::Regex(format!("^/api/v1/blocks/by_hash/{}$", hash)))
+        .mock(
+            "GET",
+            Matcher::Regex(format!("^/api/v1/blocks/by_hash/{}$", hash)),
+        )
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(baals_block_json(3, hash).to_string())

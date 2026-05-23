@@ -1,8 +1,8 @@
+use crate::api::http::{BlockResponse, ChainInfo};
+use crate::api::ApiState;
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
 use std::sync::Arc;
-use crate::api::ApiState;
-use crate::api::http::{BlockResponse, ChainInfo};
 
 #[rpc(server)]
 pub trait ChronoRpc {
@@ -13,7 +13,11 @@ pub trait ChronoRpc {
     async fn get_block_by_hash(&self, chain_id: String, hash: String) -> RpcResult<BlockResponse>;
 
     #[method(name = "chrono_getChainList")]
-    async fn get_chain_list(&self, limit: Option<u64>, offset: Option<u64>) -> RpcResult<Vec<ChainInfo>>;
+    async fn get_chain_list(
+        &self,
+        limit: Option<u64>,
+        offset: Option<u64>,
+    ) -> RpcResult<Vec<ChainInfo>>;
 }
 
 pub struct ChronoRpcImpl {
@@ -30,13 +34,16 @@ impl ChronoRpcServer for ChronoRpcImpl {
                 None::<()>,
             )
         })?;
-        let block = pipeline.get_block_by_height(&chain_id, height).await.map_err(|e| {
-            jsonrpsee::types::ErrorObjectOwned::owned(
-                jsonrpsee::types::error::ErrorCode::InvalidParams.code(),
-                e.to_string(),
-                None::<()>,
-            )
-        })?;
+        let block = pipeline
+            .get_block_by_height(&chain_id, height)
+            .await
+            .map_err(|e| {
+                jsonrpsee::types::ErrorObjectOwned::owned(
+                    jsonrpsee::types::error::ErrorCode::InvalidParams.code(),
+                    e.to_string(),
+                    None::<()>,
+                )
+            })?;
         Ok(BlockResponse {
             chain_id: block.chain_id.clone(),
             height: block.height,
@@ -55,13 +62,16 @@ impl ChronoRpcServer for ChronoRpcImpl {
                 None::<()>,
             )
         })?;
-        let block = pipeline.get_block_by_hash(&chain_id, &hash).await.map_err(|e| {
-            jsonrpsee::types::ErrorObjectOwned::owned(
-                jsonrpsee::types::error::ErrorCode::InvalidParams.code(),
-                e.to_string(),
-                None::<()>,
-            )
-        })?;
+        let block = pipeline
+            .get_block_by_hash(&chain_id, &hash)
+            .await
+            .map_err(|e| {
+                jsonrpsee::types::ErrorObjectOwned::owned(
+                    jsonrpsee::types::error::ErrorCode::InvalidParams.code(),
+                    e.to_string(),
+                    None::<()>,
+                )
+            })?;
         Ok(BlockResponse {
             chain_id: block.chain_id.clone(),
             height: block.height,
@@ -72,7 +82,11 @@ impl ChronoRpcServer for ChronoRpcImpl {
         })
     }
 
-    async fn get_chain_list(&self, limit: Option<u64>, offset: Option<u64>) -> RpcResult<Vec<ChainInfo>> {
+    async fn get_chain_list(
+        &self,
+        limit: Option<u64>,
+        offset: Option<u64>,
+    ) -> RpcResult<Vec<ChainInfo>> {
         let pipeline = self.state.pipeline.as_ref().ok_or_else(|| {
             jsonrpsee::types::ErrorObjectOwned::owned(
                 jsonrpsee::types::error::ErrorCode::ServerIsBusy.code(),
@@ -80,16 +94,17 @@ impl ChronoRpcServer for ChronoRpcImpl {
                 None::<()>,
             )
         })?;
-        let chains = pipeline.index.get_chain_list(
-            limit.unwrap_or(20),
-            offset.unwrap_or(0),
-        ).await.map_err(|e| {
-            jsonrpsee::types::ErrorObjectOwned::owned(
-                jsonrpsee::types::error::ErrorCode::InternalError.code(),
-                e.to_string(),
-                None::<()>,
-            )
-        })?;
+        let chains = pipeline
+            .index
+            .get_chain_list(limit.unwrap_or(20), offset.unwrap_or(0))
+            .await
+            .map_err(|e| {
+                jsonrpsee::types::ErrorObjectOwned::owned(
+                    jsonrpsee::types::error::ErrorCode::InternalError.code(),
+                    e.to_string(),
+                    None::<()>,
+                )
+            })?;
         Ok(chains
             .into_iter()
             .map(|(chain_id, display_name)| ChainInfo {
@@ -117,6 +132,6 @@ pub async fn rpc_handler(
         axum::response::Response::builder()
             .header(axum::http::header::CONTENT_TYPE, "application/json")
             .body(axum::body::Body::from(json_body))
-            .unwrap()
+            .unwrap(),
     )
 }

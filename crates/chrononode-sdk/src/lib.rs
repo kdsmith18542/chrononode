@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub use chrononode_core::proof::{
-    verify_proof_json, CheckpointJson, ProofJson, ProofSiblingJson,
-};
+pub use chrononode_core::proof::{verify_proof_json, CheckpointJson, ProofJson, ProofSiblingJson};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
@@ -48,7 +46,10 @@ pub enum SdkError {
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
     #[error("API error response (status {status}): {message}")]
-    Api { status: reqwest::StatusCode, message: String },
+    Api {
+        status: reqwest::StatusCode,
+        message: String,
+    },
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 }
@@ -93,7 +94,11 @@ impl ChronoNodeClient {
         Ok(res.json().await?)
     }
 
-    pub async fn list_chains(&self, page: Option<u64>, per_page: Option<u64>) -> Result<Vec<ChainInfo>, SdkError> {
+    pub async fn list_chains(
+        &self,
+        page: Option<u64>,
+        per_page: Option<u64>,
+    ) -> Result<Vec<ChainInfo>, SdkError> {
         let mut url = format!("{}/v1/chains?", self.base_url);
         if let Some(p) = page {
             url.push_str(&format!("page={}&", p));
@@ -108,7 +113,11 @@ impl ChronoNodeClient {
         Ok(res.json().await?)
     }
 
-    pub async fn get_block_by_height(&self, chain_id: &str, height: u64) -> Result<BlockResponse, SdkError> {
+    pub async fn get_block_by_height(
+        &self,
+        chain_id: &str,
+        height: u64,
+    ) -> Result<BlockResponse, SdkError> {
         let url = format!("{}/v1/chains/{}/blocks/{}", self.base_url, chain_id, height);
         let req = self.client.get(&url);
         let res = self.apply_headers(req).send().await?;
@@ -116,16 +125,32 @@ impl ChronoNodeClient {
         Ok(res.json().await?)
     }
 
-    pub async fn get_block_by_hash(&self, chain_id: &str, hash: &str) -> Result<BlockResponse, SdkError> {
-        let url = format!("{}/v1/chains/{}/blocks/hash/{}", self.base_url, chain_id, hash);
+    pub async fn get_block_by_hash(
+        &self,
+        chain_id: &str,
+        hash: &str,
+    ) -> Result<BlockResponse, SdkError> {
+        let url = format!(
+            "{}/v1/chains/{}/blocks/hash/{}",
+            self.base_url, chain_id, hash
+        );
         let req = self.client.get(&url);
         let res = self.apply_headers(req).send().await?;
         let res = self.check_status(res).await?;
         Ok(res.json().await?)
     }
 
-    pub async fn get_block_range(&self, chain_id: &str, from: u64, to: u64, format: Option<&str>) -> Result<Vec<serde_json::Value>, SdkError> {
-        let mut url = format!("{}/v1/chains/{}/blocks?from={}&to={}", self.base_url, chain_id, from, to);
+    pub async fn get_block_range(
+        &self,
+        chain_id: &str,
+        from: u64,
+        to: u64,
+        format: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>, SdkError> {
+        let mut url = format!(
+            "{}/v1/chains/{}/blocks?from={}&to={}",
+            self.base_url, chain_id, from, to
+        );
         if let Some(fmt) = format {
             url.push_str(&format!("&format={}", fmt));
         }
@@ -146,8 +171,15 @@ impl ChronoNodeClient {
         }
     }
 
-    pub async fn get_block_proof(&self, chain_id: &str, height: u64) -> Result<ProofJson, SdkError> {
-        let url = format!("{}/v1/chains/{}/proofs/block/{}", self.base_url, chain_id, height);
+    pub async fn get_block_proof(
+        &self,
+        chain_id: &str,
+        height: u64,
+    ) -> Result<ProofJson, SdkError> {
+        let url = format!(
+            "{}/v1/chains/{}/proofs/block/{}",
+            self.base_url, chain_id, height
+        );
         let req = self.client.get(&url);
         let res = self.apply_headers(req).send().await?;
         let res = self.check_status(res).await?;
@@ -155,7 +187,10 @@ impl ChronoNodeClient {
         Ok(resp.proof)
     }
 
-    pub async fn get_checkpoint(&self, checkpoint_id: &str) -> Result<CheckpointResponse, SdkError> {
+    pub async fn get_checkpoint(
+        &self,
+        checkpoint_id: &str,
+    ) -> Result<CheckpointResponse, SdkError> {
         let url = format!("{}/v1/checkpoints/{}", self.base_url, checkpoint_id);
         let req = self.client.get(&url);
         let res = self.apply_headers(req).send().await?;

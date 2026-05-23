@@ -18,27 +18,21 @@ fn bench_proof_operations(c: &mut Criterion) {
         let leaves: Vec<MerkleLeaf> = (0..size).map(make_leaf).collect();
 
         // 1. Merkle root calculation
-        group.bench_with_input(
-            BenchmarkId::new("merkle_root", size),
-            &leaves,
-            |b, l| b.iter(|| merkle_root(l)),
-        );
+        group.bench_with_input(BenchmarkId::new("merkle_root", size), &leaves, |b, l| {
+            b.iter(|| merkle_root(l))
+        });
 
         // 2. Proof generation (for the middle index)
         let target_idx = size / 2;
-        group.bench_with_input(
-            BenchmarkId::new("generate_proof", size),
-            &leaves,
-            |b, l| b.iter(|| generate_proof(l, target_idx)),
-        );
+        group.bench_with_input(BenchmarkId::new("generate_proof", size), &leaves, |b, l| {
+            b.iter(|| generate_proof(l, target_idx))
+        });
 
         // 3. Proof verification
         let proof = generate_proof(&leaves, target_idx).unwrap();
-        group.bench_with_input(
-            BenchmarkId::new("verify_proof", size),
-            &proof,
-            |b, p| b.iter(|| verify_proof(p)),
-        );
+        group.bench_with_input(BenchmarkId::new("verify_proof", size), &proof, |b, p| {
+            b.iter(|| verify_proof(p))
+        });
     }
     group.finish();
 }

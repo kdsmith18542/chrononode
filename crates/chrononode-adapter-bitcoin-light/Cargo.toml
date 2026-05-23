@@ -1,0 +1,19 @@
+[package]
+name = "chrononode-adapter-bitcoin-light"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ChronoNode Bitcoin light adapter — ingest blocks via Blockstream REST API (no full node required)"
+
+[dependencies]
+chrononode-core = { path = "../chrononode-core" }
+chrononode-adapter-sdk = { path = "../chrononode-adapter-sdk" }
+async-trait = "0.1"
+reqwest = { version = "0.13", features = ["json"] }
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["time"] }
+
+[dev-dependencies]
+mockito = "1"

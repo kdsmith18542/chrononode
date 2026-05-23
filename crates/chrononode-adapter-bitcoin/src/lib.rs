@@ -86,11 +86,7 @@ pub struct BitcoinAdapter {
 }
 
 impl BitcoinAdapter {
-    pub fn new(
-        api_url: &str,
-        username: Option<String>,
-        password: Option<String>,
-    ) -> Self {
+    pub fn new(api_url: &str, username: Option<String>, password: Option<String>) -> Self {
         Self {
             chain_id: "bitcoin".to_string(),
             client: reqwest::Client::new(),
@@ -100,7 +96,11 @@ impl BitcoinAdapter {
         }
     }
 
-    async fn call_rpc<T: serde::de::DeserializeOwned>(&self, method: &'static str, params: serde_json::Value) -> Result<T> {
+    async fn call_rpc<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &'static str,
+        params: serde_json::Value,
+    ) -> Result<T> {
         let payload = JsonRpcRequest {
             jsonrpc: "1.0",
             id: "chrononode",
@@ -127,7 +127,7 @@ impl BitcoinAdapter {
                     if let (Some(u), Some(p)) = (username, password) {
                         req = req.basic_auth(u, Some(p));
                     }
-                    
+
                     let resp = req.send().await.map_err(|e| {
                         FetchError::Retryable(format!("RPC connection failed to {}: {}", url, e))
                     })?;
@@ -139,16 +139,18 @@ impl BitcoinAdapter {
                         )));
                     }
 
-                    if !resp.status().is_success() && resp.status() != reqwest::StatusCode::BAD_REQUEST {
+                    if !resp.status().is_success()
+                        && resp.status() != reqwest::StatusCode::BAD_REQUEST
+                    {
                         return Err(FetchError::Fatal(format!(
                             "RPC request returned status {}",
                             resp.status()
                         )));
                     }
 
-                    resp.json::<JsonRpcResponse<T>>()
-                        .await
-                        .map_err(|e| FetchError::Fatal(format!("Failed to parse RPC response: {}", e)))
+                    resp.json::<JsonRpcResponse<T>>().await.map_err(|e| {
+                        FetchError::Fatal(format!("Failed to parse RPC response: {}", e))
+                    })
                 }
             },
             |e: &FetchError| matches!(e, FetchError::Retryable(_)),
@@ -159,7 +161,10 @@ impl BitcoinAdapter {
             if err.code == -5 {
                 return Err(CoreError::NotFound(err.message));
             }
-            return Err(CoreError::Adapter(format!("RPC error {}: {}", err.code, err.message)));
+            return Err(CoreError::Adapter(format!(
+                "RPC error {}: {}",
+                err.code, err.message
+            )));
         }
 
         response_body.result.ok_or_else(|| {
@@ -205,7 +210,8 @@ impl BitcoinAdapter {
                 let extra_data = serde_json::to_vec(&serde_json::json!({
                     "vin": tx.vin,
                     "vout": tx.vout,
-                })).unwrap_or_default();
+                }))
+                .unwrap_or_default();
 
                 ChronoTx {
                     tx_hash: Self::decode_hex_safe(&tx.txid),
@@ -257,18 +263,25 @@ impl ChainAdapter for BitcoinAdapter {
     }
 
     async fn latest_height(&self) -> Result<u64> {
-        self.call_rpc("getblockcount", serde_json::Value::Array(vec![])).await
+        self.call_rpc("getblockcount", serde_json::Value::Array(vec![]))
+            .await
     }
 
     async fn fetch_block(&self, height: u64) -> Result<ChronoBlock> {
-        let hash_hex: String = self.call_rpc("getblockhash", serde_json::json!([height])).await?;
-        let block_json: BitcoinBlockJson = self.call_rpc("getblock", serde_json::json!([hash_hex, 2])).await?;
+        let hash_hex: String = self
+            .call_rpc("getblockhash", serde_json::json!([height]))
+            .await?;
+        let block_json: BitcoinBlockJson = self
+            .call_rpc("getblock", serde_json::json!([hash_hex, 2]))
+            .await?;
         Ok(self.parse_block(&block_json))
     }
 
     async fn fetch_block_by_hash(&self, hash: &[u8]) -> Result<ChronoBlock> {
         let hash_hex = hex::encode(hash);
-        let block_json: BitcoinBlockJson = self.call_rpc("getblock", serde_json::json!([hash_hex, 2])).await?;
+        let block_json: BitcoinBlockJson = self
+            .call_rpc("getblock", serde_json::json!([hash_hex, 2]))
+            .await?;
         Ok(self.parse_block(&block_json))
     }
 }

@@ -1,0 +1,46 @@
+# ChronoNode BTC Watch List — Known Dormant Addresses
+# Format: address,label
+# Lines starting with # or // are skipped
+# Import with: chrononode watch import --chain bitcoin --file <this-file>
+
+# === Satoshi-era (2009-2010) ===
+1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa,Satoshi-genesis
+12c6DSiU4Rq3P4ZxziKxzrL5LmMBrzjrJX,Satoshi-block-9
+1HLoD9E4SDFsPD4KZw7qk7n5RjfQEFhB1y,Satoshi-block-78
+1Q2TWZ4aQhTLDnQEFpkr3kA6aXzCqEKY9j,Satoshi-block-245
+12cbQLTFMXRnSzktFkuoG3eHoMeFtpTu3S,Satoshi-block-248
+15Zuhon3DHXVDozE9rDNDtqBfJxXjRBNZg,Satoshi-block-286
+1MAzUUsu4YHgZAgDUdYgygZc4M7RhnZMjb,Satoshi-block-365
+1PZiG5eKcuYaKAF7M6EzELXRBZiKYcVM5s,Satoshi-block-424
+1JxAXGEDmzVHxSAnkSVMcXPohWuS8sHMxz,Satoshi-block-447
+
+# === Known Lost / Burned ===
+1BitcoinEaterAddressDontSendf59kuE,Bitcoin-eater
+1CounterpartyXXXXXXXXXXXXXXXUWLpVr,Counterparty-burn
+1QLbz7JHiBTspS962RLKV8GndWFwi5j6Qr,Luke-Jr-burn
+1Enjoy1C4bYBr3tN4sMKxvvJDqG8NkdR4Z,Enjoy-burn
+1111111111111111111114oLvT2,burn-address
+
+# === MTGOX (hacked/lost) ===
+1FeexV6bAHb8ybZjqQMjJrcCrHGW9sb6uF,MTGOX-cold-1
+1LQoWist8KkaUXSPKZHNvEyfrEkPHzQcd,MTGOX-cold-2
+1MkyFW3ea95u3HzrANhqf1bUg9Vo6qKw5s,MTGOX-cold-3
+1CjPRkL9kB5MtK6DzNYULjxX9wMVknmwJq,MTGOX-cold-4
+
+# === Early Miners (never moved) ===
+1933phfhK3ZgFQNLGSDXvqCn32k2buXY8a,miner-2009-01
+1M1qs4kA6S4nCpJAcTCSdNULgpvwxTyu68,miner-2009-era
+1F34duy2eeMz5mSrvbGepf9ksHnGYkGBvh,miner-2010-era
+1DWxKxe67GTVtt7CMHVvudQyWqXJ9NDUyC,miner-2010-era-2
+1K5wW7mdygWQBhBZwz3HRBGSQW4p3PfQmy,miner-2011-era
+
+# === Silk Road (seized) ===
+1FfmbHfnpaZjKFvyi1okTjJJusN455paPH,Silk-Road-DPR
+
+# === QuadrigaCX (lost keys) ===
+1HyYMMMbCfLr1AFJG3Sq1LP3oFLiL7DDLz,QuadrigaCX-cold
+
+# === Known dormant whales ===
+1L2JsXHh7DfJxezDvMhBWi4ehFu7hTE5qH,dormant-whale-1
+1HQ3Go3ggs8pFnXuHVHRytPCq5fGG8Hbhx,dormant-whale-2
+18rnfoQgGo1HqvVQaANSFohhKECMrQVrfi,dormant-whale-3

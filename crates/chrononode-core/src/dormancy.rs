@@ -1,0 +1,67 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DormancyStatus {
+    Active,
+    Dormant,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DormancyProof {
+    pub version: String,
+    pub chain_id: String,
+    pub address: String,
+    pub dormant_since_block: u64,
+    pub current_block: u64,
+    pub threshold_blocks: u64,
+    pub signer_pubkey: Option<String>,
+    pub signature: Option<String>,
+}
+
+impl DormancyProof {
+    pub fn message_to_sign(&self) -> Vec<u8> {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(b"chrononode:dormancy:v1");
+        hasher.update(self.chain_id.as_bytes());
+        hasher.update(self.address.as_bytes());
+        hasher.update(self.dormant_since_block.to_be_bytes());
+        hasher.update(self.current_block.to_be_bytes());
+        hasher.update(self.threshold_blocks.to_be_bytes());
+        hasher.finalize().to_vec()
+    }
+
+    pub fn sign(&mut self, keypair: &crate::signing::OperatorKeypair) {
+        let msg = self.message_to_sign();
+        let sig = keypair.sign(&msg);
+        self.signer_pubkey = Some(hex::encode(keypair.verifying_key_bytes()));
+        self.signature = Some(hex::encode(sig.to_bytes()));
+    }
+
+    pub fn verify(&self) -> bool {
+        let (pubkey_hex, sig_hex) = match (&self.signer_pubkey, &self.signature) {
+            (Some(p), Some(s)) => (p, s),
+            _ => return false,
+        };
+        let pubkey_bytes = match hex::decode(pubkey_hex) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        let sig_bytes = match hex::decode(sig_hex) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        let pubkey_arr: [u8; 32] = match pubkey_bytes.try_into() {
+            Ok(a) => a,
+            Err(_) => return false,
+        };
+        let sig_arr: [u8; 64] = match sig_bytes.try_into() {
+            Ok(a) => a,
+            Err(_) => return false,
+        };
+        let msg = self.message_to_sign();
+        crate::signing::verify_signature(&pubkey_arr, &sig_arr, &msg)
+    }
+}

@@ -5,7 +5,8 @@ use chrononode_cli::index::sqlite::SqliteIndex;
 use chrononode_cli::storage::local_fs::LocalFsBackend;
 use chrononode_core::{
     proof::{generate_proof, merkle_root, verify_proof, MerkleLeaf},
-    ChainAdapter, ChronoBlock, ChronoEvent, ChronoTx, CoreConfig, PruningConfig, PruningMode, StorageBackend,
+    ChainAdapter, ChronoBlock, ChronoEvent, ChronoTx, CoreConfig, PruningConfig, PruningMode,
+    StorageBackend,
 };
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -116,7 +117,10 @@ async fn test_archival_pruning() {
     let storage = Arc::new(LocalFsBackend::new(dir.path().to_str().unwrap()));
     let db_path = dir.path().join("index.db");
     let index = SqliteIndex::open(&db_path).await.unwrap();
-    index.register_chain("mock", "Mock Chain", "mock", "EventLedger").await.unwrap();
+    index
+        .register_chain("mock", "Mock Chain", "mock", "EventLedger")
+        .await
+        .unwrap();
 
     let config = CoreConfig {
         checkpoint_size: 10,
@@ -129,13 +133,15 @@ async fn test_archival_pruning() {
             prune_utxos: true,
         },
         compression: true,
+        dormancy: Default::default(),
+        attestation: Default::default(),
     };
 
     let pipeline = ArchivePipeline::with_config(adapter, storage, Box::new(index), config);
 
     // Archive block 0
     let (_block0, pointer0) = pipeline.archive_block(0).await.unwrap();
-    
+
     // Check that block 0 exists in storage
     let retrieved0 = pipeline.storage.get(&pointer0).await;
     assert!(retrieved0.is_ok());
@@ -152,7 +158,10 @@ async fn test_archival_pruning() {
 
     // Now, storage for block 0 should be deleted!
     let retrieved0_after = pipeline.storage.get(&pointer0).await;
-    assert!(retrieved0_after.is_err(), "Block 0 should have been pruned from storage");
+    assert!(
+        retrieved0_after.is_err(),
+        "Block 0 should have been pruned from storage"
+    );
 
     // Clear pipeline cache so it has to query the index database
     pipeline.cache.archived.invalidate_all();
@@ -160,7 +169,10 @@ async fn test_archival_pruning() {
 
     // Also, the storage pointer in index should be cleared (resulting in NotFound)
     let block0_lookup = pipeline.get_block_by_height("mock", 0).await;
-    assert!(block0_lookup.is_err(), "Block 0 should be not found after pruning");
+    assert!(
+        block0_lookup.is_err(),
+        "Block 0 should be not found after pruning"
+    );
 
     // Query index location directly to make sure storage pointer is empty
     let loc = pipeline.index.get_block_location("mock", 0).await.unwrap();
@@ -181,17 +193,29 @@ fn arb_chrono_tx() -> impl Strategy<Value = ChronoTx> {
         any::<u64>(),
         prop::collection::vec(any::<u8>(), 0..50),
     )
-        .prop_map(|(tx_hash, sender, recipient, amount, nonce, payload, gas_limit, gas_used, extra_data)| ChronoTx {
-            tx_hash,
-            sender,
-            recipient,
-            amount,
-            nonce,
-            payload,
-            gas_limit,
-            gas_used,
-            extra_data,
-        })
+        .prop_map(
+            |(
+                tx_hash,
+                sender,
+                recipient,
+                amount,
+                nonce,
+                payload,
+                gas_limit,
+                gas_used,
+                extra_data,
+            )| ChronoTx {
+                tx_hash,
+                sender,
+                recipient,
+                amount,
+                nonce,
+                payload,
+                gas_limit,
+                gas_used,
+                extra_data,
+            },
+        )
 }
 
 fn arb_chrono_event() -> impl Strategy<Value = ChronoEvent> {
@@ -202,13 +226,15 @@ fn arb_chrono_event() -> impl Strategy<Value = ChronoEvent> {
         any::<u64>(),
         prop::collection::vec(any::<u8>(), 0..100),
     )
-        .prop_map(|(event_type, emitter, tx_index, event_index, payload)| ChronoEvent {
-            event_type,
-            emitter,
-            tx_index,
-            event_index,
-            payload,
-        })
+        .prop_map(
+            |(event_type, emitter, tx_index, event_index, payload)| ChronoEvent {
+                event_type,
+                emitter,
+                tx_index,
+                event_index,
+                payload,
+            },
+        )
 }
 
 fn arb_chrono_block() -> impl Strategy<Value = ChronoBlock> {
@@ -225,19 +251,33 @@ fn arb_chrono_block() -> impl Strategy<Value = ChronoBlock> {
         prop::collection::vec(arb_chrono_event(), 0..5),
         prop::collection::vec(any::<u8>(), 0..100),
     )
-        .prop_map(|(schema_version, chain_id, height, block_hash, prev_hash, timestamp, block_model, hash_algorithm, transactions, events, extra_data)| ChronoBlock {
-            schema_version,
-            chain_id,
-            height,
-            block_hash,
-            prev_hash,
-            timestamp,
-            block_model,
-            hash_algorithm,
-            transactions,
-            events,
-            extra_data,
-        })
+        .prop_map(
+            |(
+                schema_version,
+                chain_id,
+                height,
+                block_hash,
+                prev_hash,
+                timestamp,
+                block_model,
+                hash_algorithm,
+                transactions,
+                events,
+                extra_data,
+            )| ChronoBlock {
+                schema_version,
+                chain_id,
+                height,
+                block_hash,
+                prev_hash,
+                timestamp,
+                block_model,
+                hash_algorithm,
+                transactions,
+                events,
+                extra_data,
+            },
+        )
 }
 
 proptest! {

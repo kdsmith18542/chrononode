@@ -1,0 +1,56 @@
+# ChronoNode — Arbitrum Sepolia testnet configuration
+# Copy to /etc/chrononode/chrononode.toml on VPS and chmod 600
+
+[verification]
+checkpoint_size = 1000
+hash_algorithm = "sha256"
+
+[api]
+port = 8080
+# Set CHRONONODE_API_KEY env var or replace below
+api_key = "change-me-before-deploy"
+
+[api.rate_limiting]
+requests_per_second = 100
+burst_size = 200
+
+[storage]
+backend = "local_fs"
+base_path = "/var/lib/chrononode/data"
+
+[index]
+db_path = "/var/lib/chrononode/data/index.db"
+
+[logging]
+level = "info"
+format = "json"
+
+[metrics]
+enabled = true
+port = 9090
+
+[adapters.baals]
+url = "http://localhost:9070"
+
+[dormancy]
+# ~5 years at 10-min Bitcoin blocks; adjust per-chain below
+default_threshold_blocks = 26280
+
+[dormancy.chain_thresholds]
+bitcoin = 26280
+dogecoin = 2103840   # ~4 years at ~1-min blocks
+
+[attestation]
+baals_api_url = "http://localhost:18080"
+baals_key_path = "/etc/chrononode/baals.key"
+auto_submit = true
+
+# Resurgence Protocol — Arbitrum Sepolia
+evm_rpc_url = "https://sepolia-rollup.arbitrum.io/rpc"
+evm_contract_address = "0x9769038aCbD727C41cF29102BB012Ee735BD2cdd"
+evm_chain_id = 421614
+evm_gas_limit = 1000000
+
+# evm_private_key is loaded from /etc/chrononode/evm.key (see systemd EnvironmentFile)
+# Do NOT set it here — use the EnvironmentFile approach below.
+# The service reads CHRONONODE__ATTESTATION__EVM_PRIVATE_KEY from environment.

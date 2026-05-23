@@ -58,10 +58,13 @@ async fn test_ethereum_latest_height() {
         })))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(serde_json::json!({
-            "result": "0xc350", // 50000
-            "error": null
-        }).to_string())
+        .with_body(
+            serde_json::json!({
+                "result": "0xc350", // 50000
+                "error": null
+            })
+            .to_string(),
+        )
         .create_async()
         .await;
 
@@ -86,10 +89,13 @@ async fn test_ethereum_fetch_block_by_height() {
         })))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(serde_json::json!({
-            "result": ethereum_block_json(42, hash),
-            "error": null
-        }).to_string())
+        .with_body(
+            serde_json::json!({
+                "result": ethereum_block_json(42, hash),
+                "error": null
+            })
+            .to_string(),
+        )
         .create_async()
         .await;
 
@@ -103,10 +109,13 @@ async fn test_ethereum_fetch_block_by_height() {
         })))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(serde_json::json!({
-            "result": ethereum_receipt_json(),
-            "error": null
-        }).to_string())
+        .with_body(
+            serde_json::json!({
+                "result": ethereum_receipt_json(),
+                "error": null
+            })
+            .to_string(),
+        )
         .create_async()
         .await;
 
@@ -121,8 +130,14 @@ async fn test_ethereum_fetch_block_by_height() {
 
     let tx = &block.transactions[0];
     assert_eq!(hex::encode(&tx.tx_hash), hash.trim_start_matches("0x"));
-    assert_eq!(hex::encode(&tx.sender), "2222222222222222222222222222222222222222");
-    assert_eq!(hex::encode(&tx.recipient), "3333333333333333333333333333333333333333");
+    assert_eq!(
+        hex::encode(&tx.sender),
+        "2222222222222222222222222222222222222222"
+    );
+    assert_eq!(
+        hex::encode(&tx.recipient),
+        "3333333333333333333333333333333333333333"
+    );
     assert_eq!(tx.amount, 1); // 1 Gwei
     assert_eq!(tx.nonce, 5);
     assert_eq!(tx.gas_limit, 21000);
@@ -131,11 +146,23 @@ async fn test_ethereum_fetch_block_by_height() {
 
     assert_eq!(block.events.len(), 1);
     let event = &block.events[0];
-    assert_eq!(event.event_type, "9999999999999999999999999999999999999999999999999999999999999999");
-    assert_eq!(hex::encode(&event.emitter), "3333333333333333333333333333333333333333");
+    assert_eq!(
+        event.event_type,
+        "9999999999999999999999999999999999999999999999999999999999999999"
+    );
+    assert_eq!(
+        hex::encode(&event.emitter),
+        "3333333333333333333333333333333333333333"
+    );
     assert_eq!(event.tx_index, 0);
     assert_eq!(event.event_index, 0);
-    assert_eq!(event.payload, vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]);
+    assert_eq!(
+        event.payload,
+        vec![
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 5
+        ]
+    );
 
     m1.assert();
     m2.assert();
@@ -154,10 +181,13 @@ async fn test_ethereum_not_found() {
         })))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(serde_json::json!({
-            "result": null,
-            "error": null
-        }).to_string())
+        .with_body(
+            serde_json::json!({
+                "result": null,
+                "error": null
+            })
+            .to_string(),
+        )
         .create_async()
         .await;
 

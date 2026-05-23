@@ -34,9 +34,7 @@ async fn test_rate_limiter_concurrency() {
 
     for _ in 0..100 {
         let lim = limiter.clone();
-        handles.push(tokio::spawn(async move {
-            lim.allow()
-        }));
+        handles.push(tokio::spawn(async move { lim.allow() }));
     }
 
     let mut allowed_count = 0;

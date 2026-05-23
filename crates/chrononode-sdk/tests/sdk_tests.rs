@@ -39,7 +39,12 @@ fn make_test_block(height: u64) -> ChronoBlock {
             extra_data: vec![],
         }],
         events: vec![ChronoEvent {
-            event_type: if height % 2 == 0 { "transfer" } else { "swap" }.to_string(),
+            event_type: if height.is_multiple_of(2) {
+                "transfer"
+            } else {
+                "swap"
+            }
+            .to_string(),
             emitter: vec![0xaa; 32],
             tx_index: 0,
             event_index: 0,
@@ -95,6 +100,7 @@ async fn setup_test_server() -> (String, TempDir) {
         metrics: ApiMetrics::new(),
         api_key: None,
         rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
     });
 
     let app = build_router(state);
@@ -137,7 +143,10 @@ async fn test_sdk_get_block() {
     assert_eq!(block.height, 2);
     assert_eq!(block.chain_id, "mock");
 
-    let block_by_hash = client.get_block_by_hash("mock", &block.block_hash).await.unwrap();
+    let block_by_hash = client
+        .get_block_by_hash("mock", &block.block_hash)
+        .await
+        .unwrap();
     assert_eq!(block_by_hash.height, 2);
 }
 
@@ -150,7 +159,10 @@ async fn test_sdk_get_block_range() {
     assert_eq!(blocks_json.len(), 3);
     assert_eq!(blocks_json[0]["height"], 0);
 
-    let blocks_ndjson = client.get_block_range("mock", 0, 2, Some("ndjson")).await.unwrap();
+    let blocks_ndjson = client
+        .get_block_range("mock", 0, 2, Some("ndjson"))
+        .await
+        .unwrap();
     assert_eq!(blocks_ndjson.len(), 3);
     assert_eq!(blocks_ndjson[1]["height"], 1);
 }

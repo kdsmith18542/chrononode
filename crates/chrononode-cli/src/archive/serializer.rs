@@ -9,8 +9,9 @@ pub fn serialize_block(block: &ChronoBlock, compress: bool) -> Result<Vec<u8>> {
     let mut buf = Vec::with_capacity(raw_buf.len() + 1);
     if compress {
         buf.push(1); // 0x01 = zstd compressed
-        let compressed = zstd::encode_all(&raw_buf[..], 3)
-            .map_err(|e| chrononode_core::CoreError::Storage(format!("zstd compress error: {}", e)))?;
+        let compressed = zstd::encode_all(&raw_buf[..], 3).map_err(|e| {
+            chrononode_core::CoreError::Storage(format!("zstd compress error: {}", e))
+        })?;
         buf.extend_from_slice(&compressed);
     } else {
         buf.push(0); // 0x00 = uncompressed
@@ -21,15 +22,23 @@ pub fn serialize_block(block: &ChronoBlock, compress: bool) -> Result<Vec<u8>> {
 
 pub fn deserialize_block(bytes: &[u8]) -> Result<ChronoBlock> {
     if bytes.is_empty() {
-        return Err(chrononode_core::CoreError::Storage("empty block bytes".to_string()));
+        return Err(chrononode_core::CoreError::Storage(
+            "empty block bytes".to_string(),
+        ));
     }
     let header = bytes[0];
     let payload = &bytes[1..];
     let raw_bytes = match header {
         0 => payload.to_vec(),
-        1 => zstd::decode_all(payload)
-            .map_err(|e| chrononode_core::CoreError::Storage(format!("zstd decompress error: {}", e)))?,
-        _ => return Err(chrononode_core::CoreError::Storage(format!("unknown compression header: {}", header))),
+        1 => zstd::decode_all(payload).map_err(|e| {
+            chrononode_core::CoreError::Storage(format!("zstd decompress error: {}", e))
+        })?,
+        _ => {
+            return Err(chrononode_core::CoreError::Storage(format!(
+                "unknown compression header: {}",
+                header
+            )))
+        }
     };
 
     use prost::Message;

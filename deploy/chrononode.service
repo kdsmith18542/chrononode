@@ -1,0 +1,29 @@
+[Unit]
+Description=ChronoNode — blockchain dormancy archive and oracle
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=chrononode
+Group=chrononode
+
+# Data directory contains config.toml (chmod 640, owned by root:chrononode)
+Environment=CHRONONODE_DATA_DIR=/var/lib/chrononode
+
+# EVM private key for Resurgence dormancy proof submission
+# Store in /etc/chrononode/evm.env — chmod 600, owned by root:chrononode
+EnvironmentFile=-/etc/chrononode/evm.env
+
+ExecStart=/usr/local/bin/chrononode-cli serve
+Restart=on-failure
+RestartSec=10
+
+# Hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/chrononode
+
+[Install]
+WantedBy=multi-user.target

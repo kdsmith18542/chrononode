@@ -196,6 +196,73 @@ impl PostgresIndex {
         .await
         .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
 
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS watched_addresses (
+                chain_id TEXT NOT NULL,
+                address TEXT NOT NULL,
+                added_at_block BIGINT NOT NULL DEFAULT 0,
+                label TEXT,
+                created_at BIGINT NOT NULL,
+                PRIMARY KEY (chain_id, address)
+            )",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS address_activity (
+                chain_id TEXT NOT NULL,
+                address TEXT NOT NULL,
+                block_height BIGINT NOT NULL,
+                tx_hash_hex TEXT NOT NULL,
+                first_seen_at BIGINT NOT NULL,
+                last_seen_at BIGINT NOT NULL,
+                PRIMARY KEY (chain_id, address)
+            )",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_address_activity_addr
+             ON address_activity(chain_id, address, last_seen_at DESC)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS dormancy_index (
+                chain_id TEXT NOT NULL,
+                address TEXT NOT NULL,
+                dormant_since_block BIGINT NOT NULL,
+                threshold_blocks BIGINT NOT NULL,
+                determined_at_block BIGINT NOT NULL,
+                created_at BIGINT NOT NULL,
+                PRIMARY KEY (chain_id, address)
+            )",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS attestations (
+                chain_id TEXT NOT NULL,
+                address TEXT NOT NULL,
+                dormant_since_block BIGINT NOT NULL,
+                baals_tx_hash TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                submitted_at BIGINT,
+                PRIMARY KEY (chain_id, address, dormant_since_block)
+            )",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
         Ok(())
     }
 
@@ -317,11 +384,15 @@ impl PostgresIndex {
             .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
 
             if let Ok(extra) = serde_json::from_slice::<serde_json::Value>(&tx_item.extra_data) {
-                if let (Some(vin), Some(vout)) = (extra.get("vin").and_then(|v| v.as_array()), extra.get("vout").and_then(|v| v.as_array())) {
+                if let (Some(vin), Some(vout)) = (
+                    extra.get("vin").and_then(|v| v.as_array()),
+                    extra.get("vout").and_then(|v| v.as_array()),
+                ) {
                     for (vout_idx, out_val) in vout.iter().enumerate() {
                         let val_btc = out_val.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
                         let amount = (val_btc * 100_000_000.0).round() as i64;
-                        let address = out_val.get("scriptPubKey")
+                        let address = out_val
+                            .get("scriptPubKey")
                             .and_then(|s| s.get("address"))
                             .and_then(|a| a.as_str());
                         sqlx::query(
@@ -341,7 +412,10 @@ impl PostgresIndex {
                         .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
                     }
                     for in_val in vin {
-                        if let (Some(in_txid), Some(in_vout)) = (in_val.get("txid").and_then(|t| t.as_str()), in_val.get("vout").and_then(|v| v.as_i64())) {
+                        if let (Some(in_txid), Some(in_vout)) = (
+                            in_val.get("txid").and_then(|t| t.as_str()),
+                            in_val.get("vout").and_then(|v| v.as_i64()),
+                        ) {
                             sqlx::query(
                                 "UPDATE utxos SET spent_block_height = $1
                                  WHERE chain_id = $2 AND tx_hash_hex = $3 AND vout_index = $4 AND spent_block_height IS NULL",
@@ -758,13 +832,14 @@ impl PostgresIndex {
     }
 
     pub async fn get_chain_list(&self, limit: u64, offset: u64) -> Result<Vec<(String, String)>> {
-        let rows: Vec<(String, String)> =
-            sqlx::query_as("SELECT chain_id, display_name FROM chains ORDER BY created_at DESC LIMIT $1 OFFSET $2")
-                .bind(limit as i64)
-                .bind(offset as i64)
-                .fetch_all(&self.pool)
-                .await
-                .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT chain_id, display_name FROM chains ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+        )
+        .bind(limit as i64)
+        .bind(offset as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
         Ok(rows)
     }
 
@@ -882,7 +957,10 @@ impl PostgresIndex {
         if heights.is_empty() {
             return Ok(());
         }
-        let mut tx = self.pool.begin().await
+        let mut tx = self
+            .pool
+            .begin()
+            .await
             .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
         for &height in heights {
             sqlx::query(
@@ -894,8 +972,247 @@ impl PostgresIndex {
             .await
             .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
         }
-        tx.commit().await
+        tx.commit()
+            .await
             .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
         Ok(())
+    }
+
+    pub async fn add_watched_address(
+        &self,
+        chain_id: &str,
+        address: &str,
+        added_at_block: u64,
+        label: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO watched_addresses (chain_id, address, added_at_block, label, created_at)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (chain_id, address) DO NOTHING",
+        )
+        .bind(chain_id)
+        .bind(address)
+        .bind(added_at_block as i64)
+        .bind(label)
+        .bind(chrono::Utc::now().timestamp())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn remove_watched_address(&self, chain_id: &str, address: &str) -> Result<()> {
+        sqlx::query("DELETE FROM watched_addresses WHERE chain_id = $1 AND address = $2")
+            .bind(chain_id)
+            .bind(address)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn list_watched_addresses(
+        &self,
+        chain_id: &str,
+    ) -> Result<Vec<(String, i64, Option<String>)>> {
+        let rows: Vec<(String, i64, Option<String>)> = sqlx::query_as(
+            "SELECT address, added_at_block, label FROM watched_addresses WHERE chain_id = $1 ORDER BY added_at_block DESC",
+        )
+        .bind(chain_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(rows)
+    }
+
+    pub async fn is_address_watched(&self, chain_id: &str, address: &str) -> Result<bool> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT address FROM watched_addresses WHERE chain_id = $1 AND address = $2",
+        )
+        .bind(chain_id)
+        .bind(address)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(row.is_some())
+    }
+
+    pub async fn record_activity(
+        &self,
+        chain_id: &str,
+        address: &str,
+        block_height: u64,
+        tx_hash_hex: &str,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp();
+        sqlx::query(
+            "INSERT INTO address_activity (chain_id, address, block_height, tx_hash_hex, first_seen_at, last_seen_at)
+             VALUES ($1, $2, $3, $4, $5, $5)
+             ON CONFLICT (chain_id, address)
+             DO UPDATE SET block_height = EXCLUDED.block_height,
+                           tx_hash_hex = EXCLUDED.tx_hash_hex,
+                           last_seen_at = $5",
+        )
+        .bind(chain_id)
+        .bind(address)
+        .bind(block_height as i64)
+        .bind(tx_hash_hex)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn get_last_seen(
+        &self,
+        chain_id: &str,
+        address: &str,
+    ) -> Result<Option<(u64, String)>> {
+        let row: Option<(i64, String)> = sqlx::query_as(
+            "SELECT block_height, tx_hash_hex FROM address_activity WHERE chain_id = $1 AND address = $2",
+        )
+        .bind(chain_id)
+        .bind(address)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(row.map(|(h, tx)| (h as u64, tx)))
+    }
+
+    pub async fn set_dormant(
+        &self,
+        chain_id: &str,
+        address: &str,
+        dormant_since_block: u64,
+        threshold_blocks: u64,
+        determined_at_block: u64,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO dormancy_index
+             (chain_id, address, dormant_since_block, threshold_blocks, determined_at_block, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (chain_id, address)
+             DO UPDATE SET dormant_since_block = EXCLUDED.dormant_since_block,
+                           threshold_blocks = EXCLUDED.threshold_blocks,
+                           determined_at_block = EXCLUDED.determined_at_block,
+                           created_at = EXCLUDED.created_at",
+        )
+        .bind(chain_id)
+        .bind(address)
+        .bind(dormant_since_block as i64)
+        .bind(threshold_blocks as i64)
+        .bind(determined_at_block as i64)
+        .bind(chrono::Utc::now().timestamp())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn clear_dormant(&self, chain_id: &str, address: &str) -> Result<()> {
+        sqlx::query("DELETE FROM dormancy_index WHERE chain_id = $1 AND address = $2")
+            .bind(chain_id)
+            .bind(address)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn get_dormancy_status(
+        &self,
+        chain_id: &str,
+        address: &str,
+    ) -> Result<Option<(u64, u64, u64)>> {
+        let row: Option<(i64, i64, i64)> = sqlx::query_as(
+            "SELECT dormant_since_block, threshold_blocks, determined_at_block
+             FROM dormancy_index WHERE chain_id = $1 AND address = $2",
+        )
+        .bind(chain_id)
+        .bind(address)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(row.map(|(s, t, d)| (s as u64, t as u64, d as u64)))
+    }
+
+    pub async fn list_dormant_addresses(
+        &self,
+        chain_id: &str,
+    ) -> Result<Vec<(String, u64, u64, u64)>> {
+        let rows: Vec<(String, i64, i64, i64)> = sqlx::query_as(
+            "SELECT address, dormant_since_block, threshold_blocks, determined_at_block
+             FROM dormancy_index WHERE chain_id = $1 ORDER BY dormant_since_block DESC",
+        )
+        .bind(chain_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(|(a, s, t, d)| (a, s as u64, t as u64, d as u64))
+            .collect())
+    }
+
+    pub async fn attestation_exists(
+        &self,
+        chain_id: &str,
+        address: &str,
+        dormant_since_block: u64,
+    ) -> Result<bool> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT address FROM attestations WHERE chain_id = $1 AND address = $2 AND dormant_since_block = $3 AND status != 'failed'",
+        )
+        .bind(chain_id)
+        .bind(address)
+        .bind(dormant_since_block as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(row.is_some())
+    }
+
+    pub async fn record_attestation(
+        &self,
+        chain_id: &str,
+        address: &str,
+        dormant_since_block: u64,
+        baals_tx_hash: Option<&str>,
+        status: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO attestations (chain_id, address, dormant_since_block, baals_tx_hash, status, submitted_at)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (chain_id, address, dormant_since_block)
+             DO UPDATE SET baals_tx_hash = EXCLUDED.baals_tx_hash,
+                           status = EXCLUDED.status,
+                           submitted_at = EXCLUDED.submitted_at",
+        )
+        .bind(chain_id)
+        .bind(address)
+        .bind(dormant_since_block as i64)
+        .bind(baals_tx_hash)
+        .bind(status)
+        .bind(chrono::Utc::now().timestamp())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn list_attestations(
+        &self,
+        chain_id: &str,
+    ) -> Result<Vec<(String, i64, Option<String>, String, Option<i64>)>> {
+        let rows: Vec<(String, i64, Option<String>, String, Option<i64>)> = sqlx::query_as(
+            "SELECT address, dormant_since_block, baals_tx_hash, status, submitted_at
+             FROM attestations WHERE chain_id = $1 ORDER BY submitted_at DESC",
+        )
+        .bind(chain_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(rows)
     }
 }

@@ -66,7 +66,7 @@ impl ArchivePipeline {
         if let Some(pending) = self.cache.pending.get(&height) {
             let block = (*pending).clone();
             let bytes = super::serializer::serialize_block(&block, self.config.compression)?;
-            
+
             let start_put = std::time::Instant::now();
             let put_res = self.storage.put(&bytes).await;
             let duration_put = start_put.elapsed();
@@ -80,13 +80,16 @@ impl ArchivePipeline {
             let start_pin = std::time::Instant::now();
             let pin_res = self.storage.pin(&pointer).await;
             let duration_pin = start_pin.elapsed();
-            crate::metrics::record_storage_operation(&pointer.backend, "pin", pin_res.is_ok(), duration_pin);
+            crate::metrics::record_storage_operation(
+                &pointer.backend,
+                "pin",
+                pin_res.is_ok(),
+                duration_pin,
+            );
             pin_res?;
 
             let result = (block.clone(), pointer);
-            self.cache
-                .archived
-                .insert(height, Arc::new(result.clone()));
+            self.cache.archived.insert(height, Arc::new(result.clone()));
             crate::metrics::record_block_archived(&block.chain_id, height);
             return Ok(result);
         }
@@ -124,7 +127,12 @@ impl ArchivePipeline {
         let start_pin = std::time::Instant::now();
         let pin_res = self.storage.pin(&pointer).await;
         let duration_pin = start_pin.elapsed();
-        crate::metrics::record_storage_operation(&pointer.backend, "pin", pin_res.is_ok(), duration_pin);
+        crate::metrics::record_storage_operation(
+            &pointer.backend,
+            "pin",
+            pin_res.is_ok(),
+            duration_pin,
+        );
         pin_res?;
 
         let insert = ArchivedBlockInsert {
@@ -143,20 +151,63 @@ impl ArchivePipeline {
             .archive_block_atomic(&insert, &block.transactions, &block.events)
             .await?;
 
+        // Scan transactions against watch list and record activity
+        let chain_id = &block.chain_id;
+        for tx in &block.transactions {
+            let sender_hex = hex::encode(&tx.sender);
+            let recipient_hex = hex::encode(&tx.recipient);
+            let tx_hash_hex = tx.tx_hash_hex();
+
+            if self
+                .index
+                .is_address_watched(chain_id, &sender_hex)
+                .await
+                .unwrap_or(false)
+            {
+                if let Err(e) = self
+                    .index
+                    .record_activity(chain_id, &sender_hex, height, &tx_hash_hex)
+                    .await
+                {
+                    tracing::warn!("Failed to record sender activity: {}", e);
+                }
+            }
+            if self
+                .index
+                .is_address_watched(chain_id, &recipient_hex)
+                .await
+                .unwrap_or(false)
+            {
+                if let Err(e) = self
+                    .index
+                    .record_activity(chain_id, &recipient_hex, height, &tx_hash_hex)
+                    .await
+                {
+                    tracing::warn!("Failed to record recipient activity: {}", e);
+                }
+            }
+        }
+
         // Trigger block pruning logic based on configuration
         let mut prunable_blocks = Vec::new();
         match self.config.pruning.mode {
             chrononode_core::PruningMode::Height => {
                 if height > self.config.pruning.keep_blocks {
                     let before_height = height - self.config.pruning.keep_blocks;
-                    prunable_blocks = self.index.get_prunable_blocks_by_height(&block.chain_id, before_height).await?;
+                    prunable_blocks = self
+                        .index
+                        .get_prunable_blocks_by_height(&block.chain_id, before_height)
+                        .await?;
                 }
             }
             chrononode_core::PruningMode::Age => {
                 let current_time = block.timestamp;
                 if current_time > self.config.pruning.keep_duration_secs {
                     let before_timestamp = current_time - self.config.pruning.keep_duration_secs;
-                    prunable_blocks = self.index.get_prunable_blocks_by_age(&block.chain_id, before_timestamp).await?;
+                    prunable_blocks = self
+                        .index
+                        .get_prunable_blocks_by_age(&block.chain_id, before_timestamp)
+                        .await?;
                 }
             }
             chrononode_core::PruningMode::None => {}
@@ -167,12 +218,18 @@ impl ArchivePipeline {
             for (h, ptr_str) in prunable_blocks {
                 if let Some(ptr) = StoragePointer::from_string(&ptr_str) {
                     if let Err(e) = self.storage.delete(&ptr).await {
-                        tracing::warn!("Failed to delete pruned block storage at height {}: {}", h, e);
+                        tracing::warn!(
+                            "Failed to delete pruned block storage at height {}: {}",
+                            h,
+                            e
+                        );
                     }
                 }
                 pruned_heights.push(h);
             }
-            self.index.set_blocks_pruned(&block.chain_id, &pruned_heights).await?;
+            self.index
+                .set_blocks_pruned(&block.chain_id, &pruned_heights)
+                .await?;
         }
 
         // If UTXO pruning is active, trigger spent UTXO cleanup
@@ -181,7 +238,9 @@ impl ArchivePipeline {
                 chrononode_core::PruningMode::Height => {
                     if height > self.config.pruning.keep_blocks {
                         let before_height = height - self.config.pruning.keep_blocks;
-                        self.index.prune_spent_utxos(&block.chain_id, before_height).await?;
+                        self.index
+                            .prune_spent_utxos(&block.chain_id, before_height)
+                            .await?;
                     }
                 }
                 chrononode_core::PruningMode::Age => {
@@ -229,7 +288,12 @@ impl ArchivePipeline {
         let start_get = std::time::Instant::now();
         let get_res = self.storage.get(&pointer).await;
         let duration_get = start_get.elapsed();
-        crate::metrics::record_storage_operation(&pointer.backend, "get", get_res.is_ok(), duration_get);
+        crate::metrics::record_storage_operation(
+            &pointer.backend,
+            "get",
+            get_res.is_ok(),
+            duration_get,
+        );
         let bytes = get_res?;
         super::serializer::deserialize_block(&bytes)
     }
@@ -250,10 +314,17 @@ impl ArchivePipeline {
         let start_get = std::time::Instant::now();
         let get_res = self.storage.get(&pointer).await;
         let duration_get = start_get.elapsed();
-        crate::metrics::record_storage_operation(&pointer.backend, "get", get_res.is_ok(), duration_get);
+        crate::metrics::record_storage_operation(
+            &pointer.backend,
+            "get",
+            get_res.is_ok(),
+            duration_get,
+        );
         let bytes = get_res?;
         let block = super::serializer::deserialize_block(&bytes)?;
-        self.cache.by_hash.insert(cache_key, Arc::new(block.clone()));
+        self.cache
+            .by_hash
+            .insert(cache_key, Arc::new(block.clone()));
         Ok(block)
     }
 }

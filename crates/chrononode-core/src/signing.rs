@@ -3,6 +3,7 @@ use ed25519_dalek::{Signature, SignatureError, SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
 use std::path::Path;
 
+#[derive(Clone)]
 pub struct OperatorKeypair {
     pub signing_key: SigningKey,
     pub verifying_key: VerifyingKey,

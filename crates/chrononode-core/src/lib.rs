@@ -1,13 +1,17 @@
 pub mod block;
 pub mod chain;
 pub mod config;
+pub mod dormancy;
 pub mod error;
 pub mod proof;
 pub mod signing;
 
 pub use block::{ChronoBlock, ChronoEvent, ChronoTx};
 pub use chain::{BlockModel, ChainAdapter, StorageBackend, StorageHealth, StoragePointer};
-pub use config::{CoreConfig, RepairPolicy, PruningConfig, PruningMode};
+pub use config::{
+    AttestationConfig, CoreConfig, DormancyConfig, PruningConfig, PruningMode, RepairPolicy,
+};
+pub use dormancy::{DormancyProof, DormancyStatus};
 pub use error::CoreError;
 pub use proof::MerkleLeaf;
 pub use signing::{verify_signature, OperatorKeypair};

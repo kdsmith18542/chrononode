@@ -1,0 +1,29 @@
+# ChronoNode DOGE Watch List — Known Dormant Addresses
+# Format: address,label
+# Import with: chrononode watch import --chain dogecoin --file <this-file>
+
+# === Genesis / Early 2013 ===
+DH5yaieqoZN36UNaL8gB2hE5Rr5oXBsGqF,Dogecoin-genesis
+
+# === Known burn addresses ===
+DDogepartyxxxxxxxxxxxxxxxxxxw1dfzr,Dogeparty-burn
+
+# === Large dormant holders ===
+DJfU2p6woQ9GiBdiXsWZWJnJ9uDdZfSSNC,dormant-whale-1
+D5JXoZ1cohd4gM4BJWAvSLAKokQySJCYoM,dormant-whale-2
+DMQ2B7cuvGF5HgxJ5H37P6Vw49WjYKvh2v,dormant-whale-3
+DN6gxww5nA3eoWQuQchPEMeGvLLmpVFf39,dormant-whale-4
+DREkGRksJM9Rr3M4oHHJmwUJw9KNYMECJb,dormant-whale-5
+DQwTk2EgNGoiiFAchrr81w7AkLfdsk3Z3K,dormant-whale-6
+
+# === Early miners (2013-2014 era) ===
+D8EYkL7k2VNB8BbDPHChcfczmWYdStc9QH,early-miner-1
+DLqfiFEmbwwJWNb6fuBKSUfKc4URWFrhMk,early-miner-2
+DNbgUakKWVjDKD7uRgJydRGmBMdPAeFZ6S,early-miner-3
+DHm2KZASkBtZJH1ShFWmDVCdQv6aMRFYve,early-miner-4
+
+# === Binance / Exchange hot wallets (watch for activity) ===
+DU8gPC5mhR2rdYRYfHLSMG1e8auwPbtuBP,Binance-hot-1
+DHfvtCv4H6Smy3VjK5v7aVs4HPBGSSp7Ja,Binance-hot-2
+DRgQADDRZG7v5phkMmPQqLfp5Jtb9p2oSs,Binance-hot-3
+DQkYob2GoYtN1CdG89EXnHLrCGcGDA2bEn,Binance-hot-4

@@ -1,8 +1,10 @@
-use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject, FieldResult};
+use crate::api::ApiState;
+use async_graphql::{
+    Context, EmptyMutation, EmptySubscription, FieldResult, Object, Schema, SimpleObject,
+};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::response::Html;
 use std::sync::Arc;
-use crate::api::ApiState;
 
 pub struct Query;
 
@@ -26,9 +28,17 @@ pub struct GqlChainInfo {
 
 #[Object]
 impl Query {
-    async fn block(&self, ctx: &Context<'_>, chain_id: String, height: u64) -> FieldResult<GqlBlock> {
+    async fn block(
+        &self,
+        ctx: &Context<'_>,
+        chain_id: String,
+        height: u64,
+    ) -> FieldResult<GqlBlock> {
         let state = ctx.data::<Arc<ApiState>>()?;
-        let pipeline = state.pipeline.as_ref().ok_or_else(|| async_graphql::Error::new("pipeline not initialized"))?;
+        let pipeline = state
+            .pipeline
+            .as_ref()
+            .ok_or_else(|| async_graphql::Error::new("pipeline not initialized"))?;
         let block = pipeline.get_block_by_height(&chain_id, height).await?;
         Ok(GqlBlock {
             chain_id: block.chain_id.clone(),
@@ -42,9 +52,17 @@ impl Query {
         })
     }
 
-    async fn block_by_hash(&self, ctx: &Context<'_>, chain_id: String, hash: String) -> FieldResult<GqlBlock> {
+    async fn block_by_hash(
+        &self,
+        ctx: &Context<'_>,
+        chain_id: String,
+        hash: String,
+    ) -> FieldResult<GqlBlock> {
         let state = ctx.data::<Arc<ApiState>>()?;
-        let pipeline = state.pipeline.as_ref().ok_or_else(|| async_graphql::Error::new("pipeline not initialized"))?;
+        let pipeline = state
+            .pipeline
+            .as_ref()
+            .ok_or_else(|| async_graphql::Error::new("pipeline not initialized"))?;
         let block = pipeline.get_block_by_hash(&chain_id, &hash).await?;
         Ok(GqlBlock {
             chain_id: block.chain_id.clone(),
@@ -67,13 +85,14 @@ impl Query {
         offset: Option<u64>,
     ) -> FieldResult<Vec<async_graphql::types::Json<serde_json::Value>>> {
         let state = ctx.data::<Arc<ApiState>>()?;
-        let pipeline = state.pipeline.as_ref().ok_or_else(|| async_graphql::Error::new("pipeline not initialized"))?;
-        let txs = pipeline.index.get_txns_by_sender(
-            &chain_id,
-            &sender,
-            limit.unwrap_or(20),
-            offset.unwrap_or(0),
-        ).await?;
+        let pipeline = state
+            .pipeline
+            .as_ref()
+            .ok_or_else(|| async_graphql::Error::new("pipeline not initialized"))?;
+        let txs = pipeline
+            .index
+            .get_txns_by_sender(&chain_id, &sender, limit.unwrap_or(20), offset.unwrap_or(0))
+            .await?;
         Ok(txs.into_iter().map(async_graphql::types::Json).collect())
     }
 
@@ -86,13 +105,19 @@ impl Query {
         offset: Option<u64>,
     ) -> FieldResult<Vec<async_graphql::types::Json<serde_json::Value>>> {
         let state = ctx.data::<Arc<ApiState>>()?;
-        let pipeline = state.pipeline.as_ref().ok_or_else(|| async_graphql::Error::new("pipeline not initialized"))?;
-        let txs = pipeline.index.get_txns_by_recipient(
-            &chain_id,
-            &recipient,
-            limit.unwrap_or(20),
-            offset.unwrap_or(0),
-        ).await?;
+        let pipeline = state
+            .pipeline
+            .as_ref()
+            .ok_or_else(|| async_graphql::Error::new("pipeline not initialized"))?;
+        let txs = pipeline
+            .index
+            .get_txns_by_recipient(
+                &chain_id,
+                &recipient,
+                limit.unwrap_or(20),
+                offset.unwrap_or(0),
+            )
+            .await?;
         Ok(txs.into_iter().map(async_graphql::types::Json).collect())
     }
 
@@ -105,13 +130,19 @@ impl Query {
         offset: Option<u64>,
     ) -> FieldResult<Vec<async_graphql::types::Json<serde_json::Value>>> {
         let state = ctx.data::<Arc<ApiState>>()?;
-        let pipeline = state.pipeline.as_ref().ok_or_else(|| async_graphql::Error::new("pipeline not initialized"))?;
-        let events = pipeline.index.get_events_by_type(
-            &chain_id,
-            &event_type,
-            limit.unwrap_or(20),
-            offset.unwrap_or(0),
-        ).await?;
+        let pipeline = state
+            .pipeline
+            .as_ref()
+            .ok_or_else(|| async_graphql::Error::new("pipeline not initialized"))?;
+        let events = pipeline
+            .index
+            .get_events_by_type(
+                &chain_id,
+                &event_type,
+                limit.unwrap_or(20),
+                offset.unwrap_or(0),
+            )
+            .await?;
         Ok(events.into_iter().map(async_graphql::types::Json).collect())
     }
 
@@ -122,11 +153,14 @@ impl Query {
         offset: Option<u64>,
     ) -> FieldResult<Vec<GqlChainInfo>> {
         let state = ctx.data::<Arc<ApiState>>()?;
-        let pipeline = state.pipeline.as_ref().ok_or_else(|| async_graphql::Error::new("pipeline not initialized"))?;
-        let chains = pipeline.index.get_chain_list(
-            limit.unwrap_or(20),
-            offset.unwrap_or(0),
-        ).await?;
+        let pipeline = state
+            .pipeline
+            .as_ref()
+            .ok_or_else(|| async_graphql::Error::new("pipeline not initialized"))?;
+        let chains = pipeline
+            .index
+            .get_chain_list(limit.unwrap_or(20), offset.unwrap_or(0))
+            .await?;
         Ok(chains
             .into_iter()
             .map(|(chain_id, display_name)| GqlChainInfo {
@@ -136,9 +170,16 @@ impl Query {
             .collect())
     }
 
-    async fn stats(&self, ctx: &Context<'_>, chain_id: String) -> FieldResult<async_graphql::types::Json<serde_json::Value>> {
+    async fn stats(
+        &self,
+        ctx: &Context<'_>,
+        chain_id: String,
+    ) -> FieldResult<async_graphql::types::Json<serde_json::Value>> {
         let state = ctx.data::<Arc<ApiState>>()?;
-        let pipeline = state.pipeline.as_ref().ok_or_else(|| async_graphql::Error::new("pipeline not initialized"))?;
+        let pipeline = state
+            .pipeline
+            .as_ref()
+            .ok_or_else(|| async_graphql::Error::new("pipeline not initialized"))?;
         let stats = pipeline.index.get_stats(&chain_id).await?;
         Ok(async_graphql::types::Json(stats))
     }
@@ -154,5 +195,9 @@ pub async fn graphql_handler(
 }
 
 pub async fn graphql_playground() -> Html<String> {
-    Html(async_graphql::http::GraphiQLSource::build().endpoint("/graphql").finish())
+    Html(
+        async_graphql::http::GraphiQLSource::build()
+            .endpoint("/graphql")
+            .finish(),
+    )
 }

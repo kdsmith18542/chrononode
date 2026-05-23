@@ -51,11 +51,15 @@ impl StorageBackend for FallbackStorage {
             latency_ms: 0,
             message: "primary unreachable".to_string(),
         });
-        let secondary_health = self.secondary.health_check().await.unwrap_or(StorageHealth {
-            healthy: false,
-            latency_ms: 0,
-            message: "secondary unreachable".to_string(),
-        });
+        let secondary_health = self
+            .secondary
+            .health_check()
+            .await
+            .unwrap_or(StorageHealth {
+                healthy: false,
+                latency_ms: 0,
+                message: "secondary unreachable".to_string(),
+            });
         Ok(StorageHealth {
             healthy: primary_health.healthy || secondary_health.healthy,
             latency_ms: primary_health.latency_ms.max(secondary_health.latency_ms),

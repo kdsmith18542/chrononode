@@ -1,19 +1,36 @@
 [Unit]
-Description=ChronoNode ingest loop (%i)
-Wants=network-online.target
+Description=ChronoNode Block Ingestion Service (%i)
+Documentation=https://github.com/chrononode/chrononode
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=chrononode
 Group=chrononode
-Environment=XDG_DATA_HOME=/var/lib
-EnvironmentFile=-/etc/chrononode/chrononode.env
-ExecStart=/usr/local/bin/chrononode ingest --chain %i --from 0 --follow
-Restart=always
-RestartSec=5
-LimitNOFILE=1048576
+ExecStart=/usr/local/bin/chrononode-cli ingest --chain %i --from 0 --follow --index-backend sqlite
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=chrononode-ingest-%i
+
+# Storage backend configuration (override as needed)
+Environment=CHRONONODE_STORAGE_BACKEND=local_fs
+# Environment=CHRONONODE_STORAGE_BACKEND=ipfs
+# Environment=CHRONONODE_IPFS_API_URL=http://127.0.0.1:5001
+# Environment=CHRONONODE_STORAGE_BACKEND=pinata
+# Environment=CHRONONODE_PINATA_JWT=your_jwt_here
+
+# For light adapter mode (no full node needed):
+# For Bitcoin use: [adapters.bitcoin] mode = "light" in /etc/chrononode/config.toml
+# For Dogecoin: simply use --chain dogecoin
+
+# Hardening
 NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/chrononode
 PrivateTmp=true
 
 [Install]

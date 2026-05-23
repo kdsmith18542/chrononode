@@ -65,10 +65,13 @@ async fn test_bitcoin_latest_height() {
         })))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(serde_json::json!({
-            "result": 800000,
-            "error": null
-        }).to_string())
+        .with_body(
+            serde_json::json!({
+                "result": 800000,
+                "error": null
+            })
+            .to_string(),
+        )
         .create_async()
         .await;
 
@@ -94,10 +97,13 @@ async fn test_bitcoin_fetch_block_by_height() {
         })))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(serde_json::json!({
-            "result": hash,
-            "error": null
-        }).to_string())
+        .with_body(
+            serde_json::json!({
+                "result": hash,
+                "error": null
+            })
+            .to_string(),
+        )
         .create_async()
         .await;
 
@@ -112,10 +118,13 @@ async fn test_bitcoin_fetch_block_by_height() {
         })))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(serde_json::json!({
-            "result": bitcoin_block_json(42, hash),
-            "error": null
-        }).to_string())
+        .with_body(
+            serde_json::json!({
+                "result": bitcoin_block_json(42, hash),
+                "error": null
+            })
+            .to_string(),
+        )
         .create_async()
         .await;
 
@@ -164,10 +173,13 @@ async fn test_bitcoin_fetch_block_by_hash() {
         })))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(serde_json::json!({
-            "result": bitcoin_block_json(100, hash),
-            "error": null
-        }).to_string())
+        .with_body(
+            serde_json::json!({
+                "result": bitcoin_block_json(100, hash),
+                "error": null
+            })
+            .to_string(),
+        )
         .create_async()
         .await;
 
@@ -195,13 +207,16 @@ async fn test_bitcoin_not_found() {
         })))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(serde_json::json!({
-            "result": null,
-            "error": {
-                "code": -5,
-                "message": "Block not found"
-            }
-        }).to_string())
+        .with_body(
+            serde_json::json!({
+                "result": null,
+                "error": {
+                    "code": -5,
+                    "message": "Block not found"
+                }
+            })
+            .to_string(),
+        )
         .create_async()
         .await;
 

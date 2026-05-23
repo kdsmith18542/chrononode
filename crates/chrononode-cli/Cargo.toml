@@ -12,6 +12,8 @@ chrononode-adapter-mock = { path = "../chrononode-adapter-mock" }
 chrononode-adapter-baals = { path = "../chrononode-adapter-baals" }
 chrononode-adapter-localfile = { path = "../chrononode-adapter-localfile" }
 chrononode-adapter-bitcoin = { path = "../chrononode-adapter-bitcoin" }
+chrononode-adapter-bitcoin-light = { path = "../chrononode-adapter-bitcoin-light" }
+chrononode-adapter-doge = { path = "../chrononode-adapter-doge" }
 chrononode-adapter-ethereum = { path = "../chrononode-adapter-ethereum" }
 
 anyhow = "1"
@@ -52,6 +54,8 @@ ed25519-dalek = "2"
 rand = "0.8"
 dirs-next = "2"
 chrono = { version = "0.4", features = ["serde"] }
+sha3 = "0.10"
+k256 = { version = "0.13", features = ["ecdsa"] }
 
 metrics = "0.24"
 metrics-exporter-prometheus = "0.17"

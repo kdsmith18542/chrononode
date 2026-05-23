@@ -166,6 +166,73 @@ pub trait IndexBackend: Send + Sync {
     ) -> Result<Vec<(u64, String)>>;
 
     async fn set_blocks_pruned(&self, chain_id: &str, heights: &[u64]) -> Result<()>;
+
+    async fn add_watched_address(
+        &self,
+        chain_id: &str,
+        address: &str,
+        added_at_block: u64,
+        label: Option<&str>,
+    ) -> Result<()>;
+
+    async fn remove_watched_address(&self, chain_id: &str, address: &str) -> Result<()>;
+
+    async fn list_watched_addresses(
+        &self,
+        chain_id: &str,
+    ) -> Result<Vec<(String, i64, Option<String>)>>;
+
+    async fn is_address_watched(&self, chain_id: &str, address: &str) -> Result<bool>;
+
+    async fn record_activity(
+        &self,
+        chain_id: &str,
+        address: &str,
+        block_height: u64,
+        tx_hash_hex: &str,
+    ) -> Result<()>;
+
+    async fn get_last_seen(&self, chain_id: &str, address: &str) -> Result<Option<(u64, String)>>;
+
+    async fn set_dormant(
+        &self,
+        chain_id: &str,
+        address: &str,
+        dormant_since_block: u64,
+        threshold_blocks: u64,
+        determined_at_block: u64,
+    ) -> Result<()>;
+
+    async fn clear_dormant(&self, chain_id: &str, address: &str) -> Result<()>;
+
+    async fn get_dormancy_status(
+        &self,
+        chain_id: &str,
+        address: &str,
+    ) -> Result<Option<(u64, u64, u64)>>;
+
+    async fn list_dormant_addresses(&self, chain_id: &str) -> Result<Vec<(String, u64, u64, u64)>>;
+
+    async fn attestation_exists(
+        &self,
+        chain_id: &str,
+        address: &str,
+        dormant_since_block: u64,
+    ) -> Result<bool>;
+
+    async fn record_attestation(
+        &self,
+        chain_id: &str,
+        address: &str,
+        dormant_since_block: u64,
+        baals_tx_hash: Option<&str>,
+        status: &str,
+    ) -> Result<()>;
+
+    async fn list_attestations(
+        &self,
+        chain_id: &str,
+    ) -> Result<Vec<(String, i64, Option<String>, String, Option<i64>)>>;
 }
 
 #[allow(unused_variables)]
@@ -389,6 +456,115 @@ impl IndexBackend for SqliteIndex {
     async fn set_blocks_pruned(&self, chain_id: &str, heights: &[u64]) -> Result<()> {
         SqliteIndex::set_blocks_pruned(self, chain_id, heights).await
     }
+
+    async fn add_watched_address(
+        &self,
+        chain_id: &str,
+        address: &str,
+        added_at_block: u64,
+        label: Option<&str>,
+    ) -> Result<()> {
+        SqliteIndex::add_watched_address(self, chain_id, address, added_at_block, label).await
+    }
+
+    async fn remove_watched_address(&self, chain_id: &str, address: &str) -> Result<()> {
+        SqliteIndex::remove_watched_address(self, chain_id, address).await
+    }
+
+    async fn list_watched_addresses(
+        &self,
+        chain_id: &str,
+    ) -> Result<Vec<(String, i64, Option<String>)>> {
+        SqliteIndex::list_watched_addresses(self, chain_id).await
+    }
+
+    async fn is_address_watched(&self, chain_id: &str, address: &str) -> Result<bool> {
+        SqliteIndex::is_address_watched(self, chain_id, address).await
+    }
+
+    async fn record_activity(
+        &self,
+        chain_id: &str,
+        address: &str,
+        block_height: u64,
+        tx_hash_hex: &str,
+    ) -> Result<()> {
+        SqliteIndex::record_activity(self, chain_id, address, block_height, tx_hash_hex).await
+    }
+
+    async fn get_last_seen(&self, chain_id: &str, address: &str) -> Result<Option<(u64, String)>> {
+        SqliteIndex::get_last_seen(self, chain_id, address).await
+    }
+
+    async fn set_dormant(
+        &self,
+        chain_id: &str,
+        address: &str,
+        dormant_since_block: u64,
+        threshold_blocks: u64,
+        determined_at_block: u64,
+    ) -> Result<()> {
+        SqliteIndex::set_dormant(
+            self,
+            chain_id,
+            address,
+            dormant_since_block,
+            threshold_blocks,
+            determined_at_block,
+        )
+        .await
+    }
+
+    async fn clear_dormant(&self, chain_id: &str, address: &str) -> Result<()> {
+        SqliteIndex::clear_dormant(self, chain_id, address).await
+    }
+
+    async fn get_dormancy_status(
+        &self,
+        chain_id: &str,
+        address: &str,
+    ) -> Result<Option<(u64, u64, u64)>> {
+        SqliteIndex::get_dormancy_status(self, chain_id, address).await
+    }
+
+    async fn list_dormant_addresses(&self, chain_id: &str) -> Result<Vec<(String, u64, u64, u64)>> {
+        SqliteIndex::list_dormant_addresses(self, chain_id).await
+    }
+
+    async fn attestation_exists(
+        &self,
+        chain_id: &str,
+        address: &str,
+        dormant_since_block: u64,
+    ) -> Result<bool> {
+        SqliteIndex::attestation_exists(self, chain_id, address, dormant_since_block).await
+    }
+
+    async fn record_attestation(
+        &self,
+        chain_id: &str,
+        address: &str,
+        dormant_since_block: u64,
+        baals_tx_hash: Option<&str>,
+        status: &str,
+    ) -> Result<()> {
+        SqliteIndex::record_attestation(
+            self,
+            chain_id,
+            address,
+            dormant_since_block,
+            baals_tx_hash,
+            status,
+        )
+        .await
+    }
+
+    async fn list_attestations(
+        &self,
+        chain_id: &str,
+    ) -> Result<Vec<(String, i64, Option<String>, String, Option<i64>)>> {
+        SqliteIndex::list_attestations(self, chain_id).await
+    }
 }
 
 #[cfg(feature = "postgres")]
@@ -476,13 +652,7 @@ impl IndexBackend for PostgresIndex {
         anchor_chain_id: &str,
         anchor_tx_hash: &[u8; 32],
     ) -> Result<()> {
-        PostgresIndex::anchor_checkpoint(
-            self,
-            checkpoint_id,
-            anchor_chain_id,
-            anchor_tx_hash,
-        )
-        .await
+        PostgresIndex::anchor_checkpoint(self, checkpoint_id, anchor_chain_id, anchor_tx_hash).await
     }
 
     async fn get_checkpoint(&self, checkpoint_id: &str) -> Result<Option<CheckpointRow>> {
@@ -599,5 +769,114 @@ impl IndexBackend for PostgresIndex {
 
     async fn set_blocks_pruned(&self, chain_id: &str, heights: &[u64]) -> Result<()> {
         PostgresIndex::set_blocks_pruned(self, chain_id, heights).await
+    }
+
+    async fn add_watched_address(
+        &self,
+        chain_id: &str,
+        address: &str,
+        added_at_block: u64,
+        label: Option<&str>,
+    ) -> Result<()> {
+        PostgresIndex::add_watched_address(self, chain_id, address, added_at_block, label).await
+    }
+
+    async fn remove_watched_address(&self, chain_id: &str, address: &str) -> Result<()> {
+        PostgresIndex::remove_watched_address(self, chain_id, address).await
+    }
+
+    async fn list_watched_addresses(
+        &self,
+        chain_id: &str,
+    ) -> Result<Vec<(String, i64, Option<String>)>> {
+        PostgresIndex::list_watched_addresses(self, chain_id).await
+    }
+
+    async fn is_address_watched(&self, chain_id: &str, address: &str) -> Result<bool> {
+        PostgresIndex::is_address_watched(self, chain_id, address).await
+    }
+
+    async fn record_activity(
+        &self,
+        chain_id: &str,
+        address: &str,
+        block_height: u64,
+        tx_hash_hex: &str,
+    ) -> Result<()> {
+        PostgresIndex::record_activity(self, chain_id, address, block_height, tx_hash_hex).await
+    }
+
+    async fn get_last_seen(&self, chain_id: &str, address: &str) -> Result<Option<(u64, String)>> {
+        PostgresIndex::get_last_seen(self, chain_id, address).await
+    }
+
+    async fn set_dormant(
+        &self,
+        chain_id: &str,
+        address: &str,
+        dormant_since_block: u64,
+        threshold_blocks: u64,
+        determined_at_block: u64,
+    ) -> Result<()> {
+        PostgresIndex::set_dormant(
+            self,
+            chain_id,
+            address,
+            dormant_since_block,
+            threshold_blocks,
+            determined_at_block,
+        )
+        .await
+    }
+
+    async fn clear_dormant(&self, chain_id: &str, address: &str) -> Result<()> {
+        PostgresIndex::clear_dormant(self, chain_id, address).await
+    }
+
+    async fn get_dormancy_status(
+        &self,
+        chain_id: &str,
+        address: &str,
+    ) -> Result<Option<(u64, u64, u64)>> {
+        PostgresIndex::get_dormancy_status(self, chain_id, address).await
+    }
+
+    async fn list_dormant_addresses(&self, chain_id: &str) -> Result<Vec<(String, u64, u64, u64)>> {
+        PostgresIndex::list_dormant_addresses(self, chain_id).await
+    }
+
+    async fn attestation_exists(
+        &self,
+        chain_id: &str,
+        address: &str,
+        dormant_since_block: u64,
+    ) -> Result<bool> {
+        PostgresIndex::attestation_exists(self, chain_id, address, dormant_since_block).await
+    }
+
+    async fn record_attestation(
+        &self,
+        chain_id: &str,
+        address: &str,
+        dormant_since_block: u64,
+        baals_tx_hash: Option<&str>,
+        status: &str,
+    ) -> Result<()> {
+        PostgresIndex::record_attestation(
+            self,
+            chain_id,
+            address,
+            dormant_since_block,
+            baals_tx_hash,
+            status,
+        )
+        .await
+    }
+
+    async fn list_attestations(
+        &self,
+        chain_id: &str,
+    ) -> Result<Vec<(String, i64, Option<String>, String, Option<i64>)>> {
+        PostgresIndex::list_attestations(self, chain_id).await
     }
 }

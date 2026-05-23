@@ -257,7 +257,6 @@ pub fn verify_proof_json(proof_json: &ProofJson) -> bool {
 }
 
 #[cfg(test)]
-
 mod tests {
     use super::*;
 
