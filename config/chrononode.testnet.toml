@@ -32,6 +32,15 @@ port = 9090
 [adapters.baals]
 url = "http://localhost:9070"
 
+[adapters.bitcoin-light]
+# Prefer mempool.space and fall back to blockstream.info on rate limits/outages
+api_urls = ["https://mempool.space", "https://blockstream.info"]
+
+[adapters.dogecoin]
+api_url = "https://api.blockcypher.com"
+# Optional paid token to increase request quota:
+# api_token = "replace-with-blockcypher-token"
+
 [dormancy]
 # ~5 years at 10-min Bitcoin blocks; adjust per-chain below
 default_threshold_blocks = 26280

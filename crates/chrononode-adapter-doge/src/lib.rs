@@ -76,23 +76,86 @@ struct BlockCypherVout {
 pub struct DogeAdapter {
     chain_id: String,
     client: reqwest::Client,
-    api_url: String,
+    api_urls: Vec<String>,
+    api_token: Option<String>,
 }
 
 impl DogeAdapter {
     pub fn new(api_url: &str) -> Self {
+        Self::new_with_options(vec![api_url.to_string()], None)
+    }
+
+    pub fn new_with_options(api_urls: Vec<String>, api_token: Option<String>) -> Self {
         Self {
             chain_id: "dogecoin".to_string(),
             client: reqwest::Client::builder()
                 .user_agent("chrononode/0.1")
                 .build()
                 .unwrap_or_default(),
-            api_url: api_url.trim_end_matches('/').to_string(),
+            api_urls: Self::normalize_api_urls(api_urls),
+            api_token: api_token
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty()),
         }
     }
 
     async fn get(&self, path: &str) -> Result<serde_json::Value> {
-        let url = format!("{}{}", self.api_url, path);
+        let mut last_err: Option<CoreError> = None;
+
+        for base_url in &self.api_urls {
+            let url = self.build_url(base_url, path);
+            match self.get_single(&url).await {
+                Ok(value) => return Ok(value),
+                Err(e) => {
+                    last_err = Some(e);
+                }
+            }
+        }
+
+        Err(last_err
+            .unwrap_or_else(|| CoreError::Adapter("no dogecoin API URLs configured".to_string())))
+    }
+
+    fn decode_hex_safe(hex_str: &str) -> Vec<u8> {
+        hex::decode(hex_str.trim_start_matches("0x")).unwrap_or_default()
+    }
+
+    fn normalize_api_urls(api_urls: Vec<String>) -> Vec<String> {
+        let mut out = Vec::new();
+        for url in api_urls {
+            let trimmed = url.trim().trim_end_matches('/').to_string();
+            if !trimmed.is_empty() && !out.contains(&trimmed) {
+                out.push(trimmed);
+            }
+        }
+        if out.is_empty() {
+            out.push("https://api.blockcypher.com".to_string());
+        }
+        out
+    }
+
+    fn is_retryable_status(status: reqwest::StatusCode) -> bool {
+        status.is_server_error()
+            || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+            || status == reqwest::StatusCode::REQUEST_TIMEOUT
+    }
+
+    fn build_url(&self, base_url: &str, path: &str) -> String {
+        let mut url = format!("{}{}", base_url, path);
+        if let Some(token) = &self.api_token {
+            if url.contains('?') {
+                url.push('&');
+            } else {
+                url.push('?');
+            }
+            url.push_str("token=");
+            url.push_str(token);
+        }
+        url
+    }
+
+    async fn get_single(&self, url: &str) -> Result<serde_json::Value> {
+        let url = url.to_string();
         let client = self.client.clone();
 
         retry_with_backoff_predicate(
@@ -102,11 +165,12 @@ impl DogeAdapter {
                 let url = url.clone();
                 let client = client.clone();
                 async move {
-                    let resp = client.get(&url).send().await.map_err(|e| {
-                        FetchError::Retryable(format!("GET {} failed: {}", url, e))
-                    })?;
+                    let resp =
+                        client.get(&url).send().await.map_err(|e| {
+                            FetchError::Retryable(format!("GET {} failed: {}", url, e))
+                        })?;
 
-                    if resp.status().is_server_error() {
+                    if Self::is_retryable_status(resp.status()) {
                         return Err(FetchError::Retryable(format!(
                             "GET {} returned {} (retryable)",
                             url,
@@ -129,10 +193,6 @@ impl DogeAdapter {
         )
         .await
         .map_err(Into::into)
-    }
-
-    fn decode_hex_safe(hex_str: &str) -> Vec<u8> {
-        hex::decode(hex_str.trim_start_matches("0x")).unwrap_or_default()
     }
 
     /// Parse ISO 8601 timestamp ("2021-04-23T09:24:36Z") to Unix seconds.
@@ -293,11 +353,29 @@ impl ChainAdapter for DogeAdapter {
 
 pub fn init() {
     chrononode_adapter_sdk::registry::register("dogecoin", "Dogecoin (BlockCypher)", |config| {
-        let url = config
-            .get("api_url")
+        let mut api_urls = config
+            .get("api_urls")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(ToOwned::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        if api_urls.is_empty() {
+            if let Some(url) = config.get("api_url").and_then(|v| v.as_str()) {
+                api_urls.push(url.to_string());
+            }
+        }
+
+        let api_token = config
+            .get("api_token")
             .and_then(|v| v.as_str())
-            .unwrap_or("https://api.blockcypher.com");
-        Ok(Arc::new(DogeAdapter::new(url)))
+            .map(|s| s.to_string())
+            .or_else(|| std::env::var("CHRONONODE_DOGE_API_TOKEN").ok());
+
+        Ok(Arc::new(DogeAdapter::new_with_options(api_urls, api_token)))
     });
 }
 
@@ -308,7 +386,10 @@ mod tests {
     #[test]
     fn test_parse_timestamp_known_date() {
         // 2021-04-23T09:24:36Z = Unix 1619169876 (verified externally)
-        assert_eq!(DogeAdapter::parse_timestamp("2021-04-23T09:24:36Z"), 1619169876);
+        assert_eq!(
+            DogeAdapter::parse_timestamp("2021-04-23T09:24:36Z"),
+            1619169876
+        );
     }
 
     #[test]
@@ -354,7 +435,10 @@ mod tests {
             "total": 1008861401632u64,
         });
         let tx: BlockCypherTx = serde_json::from_value(json).unwrap();
-        assert_eq!(tx.hash, "e8b1d033b222c3c5a104d3ef1a8c931363bfb881a869b8bc57ab02504e30a141");
+        assert_eq!(
+            tx.hash,
+            "e8b1d033b222c3c5a104d3ef1a8c931363bfb881a869b8bc57ab02504e30a141"
+        );
         assert_eq!(tx.inputs[0].output_index, Some(-1));
         assert_eq!(
             tx.outputs[0].addresses.as_ref().unwrap()[0],

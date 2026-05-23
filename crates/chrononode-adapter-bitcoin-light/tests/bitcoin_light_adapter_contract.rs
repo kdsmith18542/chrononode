@@ -175,3 +175,29 @@ async fn test_bitcoin_light_server_error_retries() {
     assert!(result.is_err());
     mock.assert();
 }
+
+#[tokio::test]
+async fn test_bitcoin_light_fallback_endpoint_on_429() {
+    let mut primary = Server::new_async().await;
+    let mut secondary = Server::new_async().await;
+
+    let primary_mock = primary
+        .mock("GET", "/api/blocks/tip/height")
+        .with_status(429)
+        .with_body("Too Many Requests")
+        .expect_at_least(1)
+        .create();
+
+    let secondary_mock = secondary
+        .mock("GET", "/api/blocks/tip/height")
+        .with_status(200)
+        .with_body("750001")
+        .create();
+
+    let adapter = BitcoinLightAdapter::new_with_fallbacks(vec![primary.url(), secondary.url()]);
+    let height = adapter.latest_height().await.unwrap();
+    assert_eq!(height, 750001);
+
+    primary_mock.assert();
+    secondary_mock.assert();
+}

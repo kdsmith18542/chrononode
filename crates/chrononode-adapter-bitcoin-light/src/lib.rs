@@ -70,23 +70,104 @@ struct BlockstreamVout {
 pub struct BitcoinLightAdapter {
     chain_id: String,
     client: reqwest::Client,
-    api_url: String,
+    api_urls: Vec<String>,
 }
 
 impl BitcoinLightAdapter {
     pub fn new(api_url: &str) -> Self {
+        Self::new_with_fallbacks(vec![api_url.to_string()])
+    }
+
+    pub fn new_with_fallbacks(api_urls: Vec<String>) -> Self {
         Self {
             chain_id: "bitcoin".to_string(),
             client: reqwest::Client::builder()
                 .user_agent("chrononode/0.1")
                 .build()
                 .unwrap_or_default(),
-            api_url: api_url.trim_end_matches('/').to_string(),
+            api_urls: Self::normalize_api_urls(api_urls),
         }
     }
 
     async fn get(&self, path: &str) -> Result<serde_json::Value> {
-        let url = format!("{}{}", self.api_url, path);
+        let mut last_err: Option<CoreError> = None;
+        for base_url in &self.api_urls {
+            let url = format!("{}{}", base_url, path);
+            match self.get_single(&url).await {
+                Ok(value) => return Ok(value),
+                Err(e) => {
+                    last_err = Some(e);
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| {
+            CoreError::Adapter("no bitcoin-light API URLs configured".to_string())
+        }))
+    }
+
+    async fn get_text(&self, path: &str) -> Result<String> {
+        let mut last_err: Option<CoreError> = None;
+        for base_url in &self.api_urls {
+            let url = format!("{}{}", base_url, path);
+            match self.get_text_single(&url).await {
+                Ok(value) => return Ok(value),
+                Err(e) => {
+                    last_err = Some(e);
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| {
+            CoreError::Adapter("no bitcoin-light API URLs configured".to_string())
+        }))
+    }
+
+    async fn fetch_block_txs(&self, block_hash: &str) -> Result<Vec<BlockstreamTx>> {
+        let mut all_txs = Vec::new();
+        let mut start_index = 0u64;
+        loop {
+            let path = format!("/api/block/{}/txs/{}", block_hash, start_index);
+            let json = self.get(&path).await?;
+            let txs: Vec<BlockstreamTx> = serde_json::from_value(json)
+                .map_err(|e| CoreError::Adapter(format!("failed to parse txs: {}", e)))?;
+            let count = txs.len() as u64;
+            all_txs.extend(txs);
+            if count < 25 {
+                break;
+            }
+            start_index += 25;
+        }
+        Ok(all_txs)
+    }
+
+    fn decode_hex_safe(hex_str: &str) -> Vec<u8> {
+        hex::decode(hex_str.trim_start_matches("0x")).unwrap_or_default()
+    }
+
+    fn normalize_api_urls(api_urls: Vec<String>) -> Vec<String> {
+        let mut out = Vec::new();
+        for url in api_urls {
+            let trimmed = url.trim().trim_end_matches('/').to_string();
+            if !trimmed.is_empty() && !out.contains(&trimmed) {
+                out.push(trimmed);
+            }
+        }
+        if out.is_empty() {
+            out.push("https://mempool.space".to_string());
+            out.push("https://blockstream.info".to_string());
+        }
+        out
+    }
+
+    fn is_retryable_status(status: reqwest::StatusCode) -> bool {
+        status.is_server_error()
+            || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+            || status == reqwest::StatusCode::REQUEST_TIMEOUT
+    }
+
+    async fn get_single(&self, url: &str) -> Result<serde_json::Value> {
+        let url = url.to_string();
         let client = self.client.clone();
 
         retry_with_backoff_predicate(
@@ -101,7 +182,7 @@ impl BitcoinLightAdapter {
                             FetchError::Retryable(format!("GET {} failed: {}", url, e))
                         })?;
 
-                    if resp.status().is_server_error() {
+                    if Self::is_retryable_status(resp.status()) {
                         return Err(FetchError::Retryable(format!(
                             "GET {} returned {} (retryable)",
                             url,
@@ -126,8 +207,8 @@ impl BitcoinLightAdapter {
         .map_err(Into::into)
     }
 
-    async fn get_text(&self, path: &str) -> Result<String> {
-        let url = format!("{}{}", self.api_url, path);
+    async fn get_text_single(&self, url: &str) -> Result<String> {
+        let url = url.to_string();
         let client = self.client.clone();
 
         retry_with_backoff_predicate(
@@ -142,7 +223,7 @@ impl BitcoinLightAdapter {
                             FetchError::Retryable(format!("GET {} failed: {}", url, e))
                         })?;
 
-                    if resp.status().is_server_error() {
+                    if Self::is_retryable_status(resp.status()) {
                         return Err(FetchError::Retryable(format!(
                             "GET {} returned {} (retryable)",
                             url,
@@ -165,28 +246,6 @@ impl BitcoinLightAdapter {
         )
         .await
         .map_err(Into::into)
-    }
-
-    async fn fetch_block_txs(&self, block_hash: &str) -> Result<Vec<BlockstreamTx>> {
-        let mut all_txs = Vec::new();
-        let mut start_index = 0u64;
-        loop {
-            let path = format!("/api/block/{}/txs/{}", block_hash, start_index);
-            let json = self.get(&path).await?;
-            let txs: Vec<BlockstreamTx> = serde_json::from_value(json)
-                .map_err(|e| CoreError::Adapter(format!("failed to parse txs: {}", e)))?;
-            let count = txs.len() as u64;
-            all_txs.extend(txs);
-            if count < 25 {
-                break;
-            }
-            start_index += 25;
-        }
-        Ok(all_txs)
-    }
-
-    fn decode_hex_safe(hex_str: &str) -> Vec<u8> {
-        hex::decode(hex_str.trim_start_matches("0x")).unwrap_or_default()
     }
 
     fn parse_block(&self, block: &BlockstreamBlock, txs: &[BlockstreamTx]) -> ChronoBlock {
@@ -309,11 +368,23 @@ pub fn init() {
         "bitcoin-light",
         "Bitcoin Light (Blockstream)",
         |config| {
-            let url = config
-                .get("api_url")
-                .and_then(|v| v.as_str())
-                .unwrap_or("https://blockstream.info");
-            Ok(Arc::new(BitcoinLightAdapter::new(url)))
+            let mut api_urls = config
+                .get("api_urls")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(ToOwned::to_owned))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            if api_urls.is_empty() {
+                if let Some(url) = config.get("api_url").and_then(|v| v.as_str()) {
+                    api_urls.push(url.to_string());
+                }
+            }
+
+            Ok(Arc::new(BitcoinLightAdapter::new_with_fallbacks(api_urls)))
         },
     );
 }

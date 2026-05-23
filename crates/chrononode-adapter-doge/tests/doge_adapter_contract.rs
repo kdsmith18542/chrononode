@@ -1,6 +1,6 @@
 use chrononode_adapter_doge::DogeAdapter;
 use chrononode_core::ChainAdapter;
-use mockito::Server;
+use mockito::{Matcher, Server};
 
 fn block_json(hash: &str, height: u64, txids: &[&str]) -> serde_json::Value {
     serde_json::json!({
@@ -83,19 +83,32 @@ async fn test_doge_fetch_block_by_height() {
     let _block_mock = server
         .mock("GET", "/v1/doge/main/blocks/12345")
         .with_status(200)
-        .with_body(serde_json::to_string(&block_json(block_hash, 12345, &["tx1hash", "tx2hash"])).unwrap())
+        .with_body(
+            serde_json::to_string(&block_json(block_hash, 12345, &["tx1hash", "tx2hash"])).unwrap(),
+        )
         .create();
 
     let _tx1_mock = server
         .mock("GET", "/v1/doge/main/txs/tx1hash")
         .with_status(200)
-        .with_body(serde_json::to_string(&regular_tx_json("tx1hash", "prevtx", 1_000_000_000, "DAddress1")).unwrap())
+        .with_body(
+            serde_json::to_string(&regular_tx_json(
+                "tx1hash",
+                "prevtx",
+                1_000_000_000,
+                "DAddress1",
+            ))
+            .unwrap(),
+        )
         .create();
 
     let _tx2_mock = server
         .mock("GET", "/v1/doge/main/txs/tx2hash")
         .with_status(200)
-        .with_body(serde_json::to_string(&coinbase_tx_json("tx2hash", 5_000_000_000, "DAddress2")).unwrap())
+        .with_body(
+            serde_json::to_string(&coinbase_tx_json("tx2hash", 5_000_000_000, "DAddress2"))
+                .unwrap(),
+        )
         .create();
 
     let adapter = DogeAdapter::new(&server.url());
@@ -128,7 +141,15 @@ async fn test_doge_fetch_block_by_hash() {
     let _tx_mock = server
         .mock("GET", "/v1/doge/main/txs/txabc")
         .with_status(200)
-        .with_body(serde_json::to_string(&regular_tx_json("txabc", "prevtx", 100_000_000, "DAddress1")).unwrap())
+        .with_body(
+            serde_json::to_string(&regular_tx_json(
+                "txabc",
+                "prevtx",
+                100_000_000,
+                "DAddress1",
+            ))
+            .unwrap(),
+        )
         .create();
 
     let adapter = DogeAdapter::new(&server.url());
@@ -165,5 +186,59 @@ async fn test_doge_server_error_retries() {
     let adapter = DogeAdapter::new(&server.url());
     let result = adapter.latest_height().await;
     assert!(result.is_err());
+    mock.assert();
+}
+
+#[tokio::test]
+async fn test_doge_fallback_endpoint_on_429() {
+    let mut primary = Server::new_async().await;
+    let mut secondary = Server::new_async().await;
+
+    let primary_mock = primary
+        .mock("GET", "/v1/doge/main")
+        .with_status(429)
+        .with_body("Too Many Requests")
+        .expect_at_least(1)
+        .create();
+
+    let chain_json = serde_json::json!({
+        "height": 5000123,
+        "hash": "abcd",
+        "name": "DOGE.main"
+    });
+
+    let secondary_mock = secondary
+        .mock("GET", "/v1/doge/main")
+        .with_status(200)
+        .with_body(serde_json::to_string(&chain_json).unwrap())
+        .create();
+
+    let adapter = DogeAdapter::new_with_options(vec![primary.url(), secondary.url()], None);
+    let height = adapter.latest_height().await.unwrap();
+    assert_eq!(height, 5000123);
+
+    primary_mock.assert();
+    secondary_mock.assert();
+}
+
+#[tokio::test]
+async fn test_doge_appends_api_token_query() {
+    let mut server = Server::new_async().await;
+    let chain_json = serde_json::json!({
+        "height": 5000999,
+        "hash": "abcd",
+        "name": "DOGE.main"
+    });
+
+    let mock = server
+        .mock("GET", "/v1/doge/main")
+        .match_query(Matcher::Regex("token=abc123".into()))
+        .with_status(200)
+        .with_body(serde_json::to_string(&chain_json).unwrap())
+        .create();
+
+    let adapter = DogeAdapter::new_with_options(vec![server.url()], Some("abc123".to_string()));
+    let height = adapter.latest_height().await.unwrap();
+    assert_eq!(height, 5000999);
     mock.assert();
 }

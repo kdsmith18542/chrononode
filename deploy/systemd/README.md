@@ -22,6 +22,11 @@ Example chain IDs:
    chrononode-cli watch import --chain bitcoin-light --file config/watchlist-bitcoin.txt
    chrononode-cli watch import --chain dogecoin --file config/watchlist-dogecoin.txt
    ```
+6. Optional DOGE API token for higher BlockCypher limits:
+   ```bash
+   echo 'CHRONONODE_DOGE_API_TOKEN=replace-with-token' | sudo tee -a /etc/chrononode/evm.env
+   sudo chmod 600 /etc/chrononode/evm.env
+   ```
 
 ## Install
 
