@@ -34,36 +34,43 @@ struct BlockCypherBlock {
     hash: String,
     height: u64,
     chain: String,
-    time: u64,
-    received_time: u64,
+    // BlockCypher returns ISO 8601 strings: "2021-04-23T09:24:36Z"
+    time: String,
+    received_time: String,
     size: u64,
     prev_block: Option<String>,
     mrkl_root: String,
     txids: Vec<String>,
     nonce: u64,
-    bits: String,
+    // BlockCypher returns bits as an integer, not a hex string
+    bits: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct BlockCypherTx {
-    tx_hash: String,
-    vin: Vec<BlockCypherVin>,
-    vout: Vec<BlockCypherVout>,
+    // BlockCypher uses "hash", not "tx_hash"
+    hash: String,
+    // BlockCypher uses "inputs"/"outputs", not "vin"/"vout"
+    inputs: Vec<BlockCypherVin>,
+    outputs: Vec<BlockCypherVout>,
+    #[serde(default)]
     lock_time: u64,
     total: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BlockCypherVin {
-    tx_hash: Option<String>,
-    vout_index: Option<u64>,
-    coinbase: Option<bool>,
+    // Previous tx hash — absent for coinbase inputs
+    prev_hash: Option<String>,
+    // -1 signals a coinbase input; otherwise the spent output index
+    output_index: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BlockCypherVout {
     value: u64,
-    scriptpubkey_addresses: Option<Vec<String>>,
+    // BlockCypher uses "addresses", not "scriptpubkey_addresses"
+    addresses: Option<Vec<String>>,
 }
 
 pub struct DogeAdapter {
@@ -95,10 +102,9 @@ impl DogeAdapter {
                 let url = url.clone();
                 let client = client.clone();
                 async move {
-                    let resp =
-                        client.get(&url).send().await.map_err(|e| {
-                            FetchError::Retryable(format!("GET {} failed: {}", url, e))
-                        })?;
+                    let resp = client.get(&url).send().await.map_err(|e| {
+                        FetchError::Retryable(format!("GET {} failed: {}", url, e))
+                    })?;
 
                     if resp.status().is_server_error() {
                         return Err(FetchError::Retryable(format!(
@@ -129,6 +135,33 @@ impl DogeAdapter {
         hex::decode(hex_str.trim_start_matches("0x")).unwrap_or_default()
     }
 
+    /// Parse ISO 8601 timestamp ("2021-04-23T09:24:36Z") to Unix seconds.
+    /// Avoids adding a chrono dep to this crate.
+    fn parse_timestamp(s: &str) -> u64 {
+        let s = s.trim_end_matches('Z');
+        let parts: Vec<&str> = s.splitn(2, 'T').collect();
+        if parts.len() != 2 {
+            return 0;
+        }
+        let date: Vec<u64> = parts[0].split('-').filter_map(|p| p.parse().ok()).collect();
+        let time: Vec<u64> = parts[1].split(':').filter_map(|p| p.parse().ok()).collect();
+        if date.len() != 3 || time.len() != 3 {
+            return 0;
+        }
+        let (y, m, d) = (date[0], date[1], date[2]);
+        let (h, mi, sec) = (time[0], time[1], time[2]);
+        // Civil-time to days-since-epoch (Gregorian calendar)
+        let m_adj = if m <= 2 { m + 9 } else { m - 3 };
+        let y_adj = if m <= 2 { y - 1 } else { y };
+        let era = y_adj / 400;
+        let yoe = y_adj - era * 400;
+        let doy = (153 * m_adj + 2) / 5 + d - 1;
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        let days = era * 146097 + doe;
+        let epoch_days = days.saturating_sub(719468);
+        epoch_days * 86400 + h * 3600 + mi * 60 + sec
+    }
+
     async fn fetch_tx(&self, txid: &str) -> Result<BlockCypherTx> {
         let json = self.get(&format!("/v1/doge/main/txs/{}", txid)).await?;
         serde_json::from_value(json)
@@ -139,12 +172,13 @@ impl DogeAdapter {
         let transactions: Vec<ChronoTx> = txs
             .iter()
             .map(|tx| {
-                let sender = if let Some(first_in) = tx.vin.first() {
-                    if first_in.coinbase.unwrap_or(false) {
+                let sender = if let Some(first_in) = tx.inputs.first() {
+                    let is_coinbase = first_in.output_index == Some(-1);
+                    if is_coinbase {
                         b"coinbase".to_vec()
-                    } else if let Some(tx_hash) = &first_in.tx_hash {
-                        let vout = first_in.vout_index.unwrap_or(0);
-                        format!("{}:{}", tx_hash, vout).into_bytes()
+                    } else if let Some(prev_hash) = &first_in.prev_hash {
+                        let vout = first_in.output_index.unwrap_or(0).max(0) as u64;
+                        format!("{}:{}", prev_hash, vout).into_bytes()
                     } else {
                         vec![]
                     }
@@ -152,8 +186,8 @@ impl DogeAdapter {
                     vec![]
                 };
 
-                let recipient = if let Some(first_out) = tx.vout.first() {
-                    if let Some(addrs) = &first_out.scriptpubkey_addresses {
+                let recipient = if let Some(first_out) = tx.outputs.first() {
+                    if let Some(addrs) = &first_out.addresses {
                         addrs
                             .first()
                             .map(|a| a.as_bytes().to_vec())
@@ -166,13 +200,13 @@ impl DogeAdapter {
                 };
 
                 let extra_data = serde_json::to_vec(&serde_json::json!({
-                    "vin": tx.vin,
-                    "vout": tx.vout,
+                    "inputs": tx.inputs,
+                    "outputs": tx.outputs,
                 }))
                 .unwrap_or_default();
 
                 ChronoTx {
-                    tx_hash: Self::decode_hex_safe(&tx.tx_hash),
+                    tx_hash: Self::decode_hex_safe(&tx.hash),
                     sender,
                     recipient,
                     amount: tx.total,
@@ -196,7 +230,7 @@ impl DogeAdapter {
             height: block.height,
             block_hash: Self::decode_hex_safe(&block.hash),
             prev_hash,
-            timestamp: block.time,
+            timestamp: Self::parse_timestamp(&block.time),
             block_model: "Utxo".to_string(),
             hash_algorithm: "scrypt".to_string(),
             transactions,
@@ -265,4 +299,85 @@ pub fn init() {
             .unwrap_or("https://api.blockcypher.com");
         Ok(Arc::new(DogeAdapter::new(url)))
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_timestamp_known_date() {
+        // 2021-04-23T09:24:36Z = Unix 1619169876 (verified externally)
+        assert_eq!(DogeAdapter::parse_timestamp("2021-04-23T09:24:36Z"), 1619169876);
+    }
+
+    #[test]
+    fn test_parse_timestamp_epoch() {
+        assert_eq!(DogeAdapter::parse_timestamp("1970-01-01T00:00:00Z"), 0);
+    }
+
+    #[test]
+    fn test_parse_timestamp_invalid() {
+        assert_eq!(DogeAdapter::parse_timestamp("not-a-date"), 0);
+    }
+
+    #[test]
+    fn test_block_deserialize_real_shape() {
+        let json = serde_json::json!({
+            "hash": "d0f0af23aadcf6b8d4a681ee930e39d1e64aca967187fa8a0c655c6dacfa22ce",
+            "height": 3700000u64,
+            "chain": "DOGE.main",
+            "time": "2021-04-23T09:24:36Z",
+            "received_time": "2021-04-23T09:24:36Z",
+            "size": 11506u64,
+            "prev_block": "25f2a076e37d8d16a3def4187507b8084159e7198cad44d5ba3577d3426fa8f5",
+            "mrkl_root": "7f95a44b575df8fcc58fe19d8c35e1d43c208f10c2a61f5902fcfd7a97dafeaf",
+            "txids": ["e8b1d033b222c3c5a104d3ef1a8c931363bfb881a869b8bc57ab02504e30a141"],
+            "nonce": 0u64,
+            "bits": 436482088u64,
+        });
+        let block: BlockCypherBlock = serde_json::from_value(json).unwrap();
+        assert_eq!(block.height, 3700000);
+        assert_eq!(block.bits, 436482088);
+        assert_eq!(DogeAdapter::parse_timestamp(&block.time), 1619169876);
+    }
+
+    #[test]
+    fn test_tx_deserialize_coinbase() {
+        let json = serde_json::json!({
+            "hash": "e8b1d033b222c3c5a104d3ef1a8c931363bfb881a869b8bc57ab02504e30a141",
+            "inputs": [{ "output_index": -1 }],
+            "outputs": [{
+                "value": 1008861401632u64,
+                "addresses": ["D5gKqqDSirsdVpNA9efWKaBmsGD7TcckQ9"]
+            }],
+            "total": 1008861401632u64,
+        });
+        let tx: BlockCypherTx = serde_json::from_value(json).unwrap();
+        assert_eq!(tx.hash, "e8b1d033b222c3c5a104d3ef1a8c931363bfb881a869b8bc57ab02504e30a141");
+        assert_eq!(tx.inputs[0].output_index, Some(-1));
+        assert_eq!(
+            tx.outputs[0].addresses.as_ref().unwrap()[0],
+            "D5gKqqDSirsdVpNA9efWKaBmsGD7TcckQ9"
+        );
+    }
+
+    #[test]
+    fn test_tx_deserialize_regular() {
+        let json = serde_json::json!({
+            "hash": "abcd1234",
+            "inputs": [{
+                "prev_hash": "deadbeef",
+                "output_index": 0
+            }],
+            "outputs": [{
+                "value": 500000000u64,
+                "addresses": ["DAddr123"]
+            }],
+            "total": 500000000u64,
+        });
+        let tx: BlockCypherTx = serde_json::from_value(json).unwrap();
+        assert_eq!(tx.inputs[0].prev_hash.as_deref(), Some("deadbeef"));
+        assert_eq!(tx.inputs[0].output_index, Some(0));
+    }
 }
