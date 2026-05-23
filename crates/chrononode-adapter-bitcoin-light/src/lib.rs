@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use chrononode_adapter_sdk::retry::retry_with_backoff_predicate;
 use chrononode_core::{BlockModel, ChainAdapter, ChronoBlock, ChronoTx, CoreError, Result};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::Arc;
 
 const MAX_RETRIES: u32 = 5;
@@ -18,6 +18,18 @@ impl From<FetchError> for CoreError {
             FetchError::Retryable(msg) | FetchError::Fatal(msg) => CoreError::Adapter(msg),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BitcoinProviderMode {
+    Esplora,
+    JsonRpc,
+}
+
+#[derive(Debug, Deserialize)]
+struct JsonRpcResponse<T> {
+    result: Option<T>,
+    error: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -67,10 +79,58 @@ struct BlockstreamVout {
     scriptpubkey_type: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BitcoinRpcBlock {
+    hash: String,
+    height: u64,
+    time: u64,
+    previousblockhash: Option<String>,
+    #[serde(default)]
+    tx: Vec<BitcoinRpcTx>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BitcoinRpcTx {
+    txid: String,
+    #[serde(default)]
+    vin: Vec<BitcoinRpcVin>,
+    #[serde(default)]
+    vout: Vec<BitcoinRpcVout>,
+    #[serde(default)]
+    locktime: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BitcoinRpcVin {
+    txid: Option<String>,
+    vout: Option<u64>,
+    coinbase: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BitcoinRpcVout {
+    value: serde_json::Value,
+    #[serde(rename = "scriptPubKey")]
+    script_pub_key: BitcoinRpcScriptPubKey,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct BitcoinRpcScriptPubKey {
+    address: Option<String>,
+    addresses: Option<Vec<String>>,
+    hex: Option<String>,
+}
+
 pub struct BitcoinLightAdapter {
     chain_id: String,
     client: reqwest::Client,
+    mode: BitcoinProviderMode,
     api_urls: Vec<String>,
+    rpc_url: Option<String>,
+    rpc_username: Option<String>,
+    rpc_password: Option<String>,
+    rpc_api_key_header: Option<String>,
+    rpc_api_key: Option<String>,
 }
 
 impl BitcoinLightAdapter {
@@ -85,7 +145,42 @@ impl BitcoinLightAdapter {
                 .user_agent("chrononode/0.1")
                 .build()
                 .unwrap_or_default(),
+            mode: BitcoinProviderMode::Esplora,
             api_urls: Self::normalize_api_urls(api_urls),
+            rpc_url: None,
+            rpc_username: None,
+            rpc_password: None,
+            rpc_api_key_header: None,
+            rpc_api_key: None,
+        }
+    }
+
+    pub fn new_rpc(
+        rpc_url: &str,
+        rpc_username: Option<String>,
+        rpc_password: Option<String>,
+        rpc_api_key: Option<String>,
+        rpc_api_key_header: Option<String>,
+    ) -> Self {
+        Self {
+            chain_id: "bitcoin".to_string(),
+            client: reqwest::Client::builder()
+                .user_agent("chrononode/0.1")
+                .build()
+                .unwrap_or_default(),
+            mode: BitcoinProviderMode::JsonRpc,
+            api_urls: Vec::new(),
+            rpc_url: Some(rpc_url.trim().trim_end_matches('/').to_string()),
+            rpc_username: rpc_username
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            rpc_password,
+            rpc_api_key_header: rpc_api_key_header
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            rpc_api_key: rpc_api_key
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
         }
     }
 
@@ -166,8 +261,24 @@ impl BitcoinLightAdapter {
             || status == reqwest::StatusCode::REQUEST_TIMEOUT
     }
 
+    fn redact_url(url: &str) -> String {
+        let mut out = url.to_string();
+        if let Some(prefix_pos) = out.find("go.getblock.io/") {
+            let segment_start = prefix_pos + "go.getblock.io/".len();
+            let segment_end = out[segment_start..]
+                .find('/')
+                .map(|i| segment_start + i)
+                .unwrap_or(out.len());
+            if segment_end > segment_start {
+                out.replace_range(segment_start..segment_end, "[redacted]");
+            }
+        }
+        out
+    }
+
     async fn get_single(&self, url: &str) -> Result<serde_json::Value> {
         let url = url.to_string();
+        let display_url = Self::redact_url(&url);
         let client = self.client.clone();
 
         retry_with_backoff_predicate(
@@ -175,24 +286,24 @@ impl BitcoinLightAdapter {
             1000,
             || {
                 let url = url.clone();
+                let display_url = display_url.clone();
                 let client = client.clone();
                 async move {
-                    let resp =
-                        client.get(&url).send().await.map_err(|e| {
-                            FetchError::Retryable(format!("GET {} failed: {}", url, e))
-                        })?;
+                    let resp = client.get(&url).send().await.map_err(|e| {
+                        FetchError::Retryable(format!("GET {} failed: {}", display_url, e))
+                    })?;
 
                     if Self::is_retryable_status(resp.status()) {
                         return Err(FetchError::Retryable(format!(
                             "GET {} returned {} (retryable)",
-                            url,
+                            display_url,
                             resp.status()
                         )));
                     }
                     if !resp.status().is_success() {
                         return Err(FetchError::Fatal(format!(
                             "GET {} returned {}",
-                            url,
+                            display_url,
                             resp.status()
                         )));
                     }
@@ -209,6 +320,7 @@ impl BitcoinLightAdapter {
 
     async fn get_text_single(&self, url: &str) -> Result<String> {
         let url = url.to_string();
+        let display_url = Self::redact_url(&url);
         let client = self.client.clone();
 
         retry_with_backoff_predicate(
@@ -216,24 +328,24 @@ impl BitcoinLightAdapter {
             1000,
             || {
                 let url = url.clone();
+                let display_url = display_url.clone();
                 let client = client.clone();
                 async move {
-                    let resp =
-                        client.get(&url).send().await.map_err(|e| {
-                            FetchError::Retryable(format!("GET {} failed: {}", url, e))
-                        })?;
+                    let resp = client.get(&url).send().await.map_err(|e| {
+                        FetchError::Retryable(format!("GET {} failed: {}", display_url, e))
+                    })?;
 
                     if Self::is_retryable_status(resp.status()) {
                         return Err(FetchError::Retryable(format!(
                             "GET {} returned {} (retryable)",
-                            url,
+                            display_url,
                             resp.status()
                         )));
                     }
                     if !resp.status().is_success() {
                         return Err(FetchError::Fatal(format!(
                             "GET {} returned {}",
-                            url,
+                            display_url,
                             resp.status()
                         )));
                     }
@@ -248,7 +360,200 @@ impl BitcoinLightAdapter {
         .map_err(Into::into)
     }
 
-    fn parse_block(&self, block: &BlockstreamBlock, txs: &[BlockstreamTx]) -> ChronoBlock {
+    fn rpc_endpoint(&self) -> Result<&str> {
+        self.rpc_url
+            .as_deref()
+            .ok_or_else(|| CoreError::Adapter("missing bitcoin-light rpc_url".to_string()))
+    }
+
+    async fn rpc_call<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<T> {
+        let rpc_url = self.rpc_endpoint()?.to_string();
+        let display_url = Self::redact_url(&rpc_url);
+        let username = self.rpc_username.clone();
+        let password = self.rpc_password.clone();
+        let api_key = self.rpc_api_key.clone();
+        let api_key_header = self
+            .rpc_api_key_header
+            .clone()
+            .unwrap_or_else(|| "x-api-key".to_string());
+        let client = self.client.clone();
+        let method_name = method.to_string();
+
+        retry_with_backoff_predicate(
+            MAX_RETRIES,
+            1000,
+            || {
+                let client = client.clone();
+                let rpc_url = rpc_url.clone();
+                let display_url = display_url.clone();
+                let username = username.clone();
+                let password = password.clone();
+                let api_key = api_key.clone();
+                let api_key_header = api_key_header.clone();
+                let params = params.clone();
+                let method_name = method_name.clone();
+                async move {
+                    let body = serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": "chrononode",
+                        "method": method_name,
+                        "params": params,
+                    });
+
+                    let mut req = client
+                        .post(&rpc_url)
+                        .header(reqwest::header::CONTENT_TYPE, "application/json")
+                        .json(&body);
+                    if let Some(user) = username.as_deref() {
+                        req = req.basic_auth(user, password.as_deref());
+                    }
+                    if let Some(key) = api_key.as_deref() {
+                        req = req.header(&api_key_header, key);
+                    }
+
+                    let resp = req.send().await.map_err(|e| {
+                        FetchError::Retryable(format!("POST {} failed: {}", display_url, e))
+                    })?;
+
+                    if Self::is_retryable_status(resp.status()) {
+                        return Err(FetchError::Retryable(format!(
+                            "POST {} returned {} (retryable)",
+                            display_url,
+                            resp.status()
+                        )));
+                    }
+                    if !resp.status().is_success() {
+                        return Err(FetchError::Fatal(format!(
+                            "POST {} returned {}",
+                            display_url,
+                            resp.status()
+                        )));
+                    }
+
+                    let payload: JsonRpcResponse<T> = resp
+                        .json()
+                        .await
+                        .map_err(|e| FetchError::Fatal(format!("JSON parse failed: {}", e)))?;
+
+                    if let Some(result) = payload.result {
+                        Ok(result)
+                    } else {
+                        Err(FetchError::Fatal(format!(
+                            "RPC {} error: {:?}",
+                            method_name, payload.error
+                        )))
+                    }
+                }
+            },
+            |e: &FetchError| matches!(e, FetchError::Retryable(_)),
+        )
+        .await
+        .map_err(Into::into)
+    }
+
+    fn rpc_value_to_sats(value: &serde_json::Value) -> u64 {
+        let btc = if let Some(f) = value.as_f64() {
+            f
+        } else if let Some(s) = value.as_str() {
+            s.parse::<f64>().unwrap_or(0.0)
+        } else if let Some(i) = value.as_i64() {
+            i as f64
+        } else if let Some(u) = value.as_u64() {
+            u as f64
+        } else {
+            0.0
+        };
+
+        if btc <= 0.0 || !btc.is_finite() {
+            0
+        } else {
+            (btc * 100_000_000.0).round() as u64
+        }
+    }
+
+    fn parse_block_rpc(&self, block: &BitcoinRpcBlock) -> ChronoBlock {
+        let transactions: Vec<ChronoTx> = block
+            .tx
+            .iter()
+            .map(|tx| {
+                let sender = if let Some(first_in) = tx.vin.first() {
+                    if first_in.coinbase.is_some() {
+                        b"coinbase".to_vec()
+                    } else if let Some(txid) = &first_in.txid {
+                        format!("{}:{}", txid, first_in.vout.unwrap_or(0)).into_bytes()
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    vec![]
+                };
+
+                let recipient = if let Some(first_out) = tx.vout.first() {
+                    if let Some(addr) = &first_out.script_pub_key.address {
+                        addr.as_bytes().to_vec()
+                    } else if let Some(addrs) = &first_out.script_pub_key.addresses {
+                        addrs
+                            .first()
+                            .map(|a| a.as_bytes().to_vec())
+                            .unwrap_or_default()
+                    } else {
+                        Self::decode_hex_safe(first_out.script_pub_key.hex.as_deref().unwrap_or(""))
+                    }
+                } else {
+                    vec![]
+                };
+
+                let total_sats: u64 = tx
+                    .vout
+                    .iter()
+                    .map(|o| Self::rpc_value_to_sats(&o.value))
+                    .sum();
+
+                let extra_data = serde_json::to_vec(&serde_json::json!({
+                    "vin": tx.vin,
+                    "vout": tx.vout,
+                }))
+                .unwrap_or_default();
+
+                ChronoTx {
+                    tx_hash: Self::decode_hex_safe(&tx.txid),
+                    sender,
+                    recipient,
+                    amount: total_sats,
+                    nonce: tx.locktime,
+                    payload: vec![],
+                    gas_limit: 0,
+                    gas_used: 0,
+                    extra_data,
+                }
+            })
+            .collect();
+
+        let prev_hash = match &block.previousblockhash {
+            Some(h) => Self::decode_hex_safe(h),
+            None => vec![0u8; 32],
+        };
+
+        ChronoBlock {
+            schema_version: 1,
+            chain_id: self.chain_id.clone(),
+            height: block.height,
+            block_hash: Self::decode_hex_safe(&block.hash),
+            prev_hash,
+            timestamp: block.time,
+            block_model: "Utxo".to_string(),
+            hash_algorithm: "sha256d".to_string(),
+            transactions,
+            events: vec![],
+            extra_data: vec![],
+        }
+    }
+
+    fn parse_block_esplora(&self, block: &BlockstreamBlock, txs: &[BlockstreamTx]) -> ChronoBlock {
         let transactions: Vec<ChronoTx> = txs
             .iter()
             .map(|tx| {
@@ -316,6 +621,14 @@ impl BitcoinLightAdapter {
             extra_data: vec![],
         }
     }
+
+    async fn fetch_block_by_hash_str_esplora(&self, hash_hex: &str) -> Result<ChronoBlock> {
+        let block_json = self.get(&format!("/api/block/{}", hash_hex)).await?;
+        let block: BlockstreamBlock = serde_json::from_value(block_json)
+            .map_err(|e| CoreError::Adapter(format!("failed to parse block: {}", e)))?;
+        let txs = self.fetch_block_txs(hash_hex).await?;
+        Ok(self.parse_block_esplora(&block, &txs))
+    }
 }
 
 #[async_trait]
@@ -325,7 +638,10 @@ impl ChainAdapter for BitcoinLightAdapter {
     }
 
     fn display_name(&self) -> &str {
-        "Bitcoin Light (Blockstream)"
+        match self.mode {
+            BitcoinProviderMode::Esplora => "Bitcoin Light (Blockstream)",
+            BitcoinProviderMode::JsonRpc => "Bitcoin Light (JSON-RPC)",
+        }
     }
 
     fn block_model(&self) -> BlockModel {
@@ -333,33 +649,51 @@ impl ChainAdapter for BitcoinLightAdapter {
     }
 
     async fn latest_height(&self) -> Result<u64> {
-        let text = self.get_text("/api/blocks/tip/height").await?;
-        text.trim()
-            .parse::<u64>()
-            .map_err(|e| CoreError::Adapter(format!("invalid tip height response: {}", e)))
+        match self.mode {
+            BitcoinProviderMode::Esplora => {
+                let text = self.get_text("/api/blocks/tip/height").await?;
+                text.trim()
+                    .parse::<u64>()
+                    .map_err(|e| CoreError::Adapter(format!("invalid tip height response: {}", e)))
+            }
+            BitcoinProviderMode::JsonRpc => {
+                self.rpc_call("getblockcount", serde_json::json!([])).await
+            }
+        }
     }
 
     async fn fetch_block(&self, height: u64) -> Result<ChronoBlock> {
-        let hash = self
-            .get_text(&format!("/api/block-height/{}", height))
-            .await?;
-        let hash = hash.trim().to_string();
-        self.fetch_block_by_hash_str(&hash).await
+        match self.mode {
+            BitcoinProviderMode::Esplora => {
+                let hash = self
+                    .get_text(&format!("/api/block-height/{}", height))
+                    .await?;
+                let hash = hash.trim().to_string();
+                self.fetch_block_by_hash_str_esplora(&hash).await
+            }
+            BitcoinProviderMode::JsonRpc => {
+                let hash: String = self
+                    .rpc_call("getblockhash", serde_json::json!([height]))
+                    .await?;
+                let block: BitcoinRpcBlock = self
+                    .rpc_call("getblock", serde_json::json!([hash, 2]))
+                    .await?;
+                Ok(self.parse_block_rpc(&block))
+            }
+        }
     }
 
     async fn fetch_block_by_hash(&self, hash: &[u8]) -> Result<ChronoBlock> {
         let hash_hex = hex::encode(hash);
-        self.fetch_block_by_hash_str(&hash_hex).await
-    }
-}
-
-impl BitcoinLightAdapter {
-    async fn fetch_block_by_hash_str(&self, hash_hex: &str) -> Result<ChronoBlock> {
-        let block_json = self.get(&format!("/api/block/{}", hash_hex)).await?;
-        let block: BlockstreamBlock = serde_json::from_value(block_json)
-            .map_err(|e| CoreError::Adapter(format!("failed to parse block: {}", e)))?;
-        let txs = self.fetch_block_txs(hash_hex).await?;
-        Ok(self.parse_block(&block, &txs))
+        match self.mode {
+            BitcoinProviderMode::Esplora => self.fetch_block_by_hash_str_esplora(&hash_hex).await,
+            BitcoinProviderMode::JsonRpc => {
+                let block: BitcoinRpcBlock = self
+                    .rpc_call("getblock", serde_json::json!([hash_hex, 2]))
+                    .await?;
+                Ok(self.parse_block_rpc(&block))
+            }
+        }
     }
 }
 
@@ -368,6 +702,52 @@ pub fn init() {
         "bitcoin-light",
         "Bitcoin Light (Blockstream)",
         |config| {
+            let mode = config
+                .get("mode")
+                .and_then(|v| v.as_str())
+                .unwrap_or("esplora");
+
+            if mode.eq_ignore_ascii_case("rpc") || mode.eq_ignore_ascii_case("json-rpc") {
+                let rpc_url = config
+                    .get("rpc_url")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| config.get("api_url").and_then(|v| v.as_str()))
+                    .ok_or_else(|| "bitcoin-light adapter mode=rpc requires rpc_url".to_string())?;
+
+                let rpc_username = config
+                    .get("rpc_username")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| std::env::var("CHRONONODE_BTC_RPC_USERNAME").ok())
+                    .or_else(|| std::env::var("CHRONONODE_BITCOIN_LIGHT_RPC_USERNAME").ok());
+                let rpc_password = config
+                    .get("rpc_password")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| std::env::var("CHRONONODE_BTC_RPC_PASSWORD").ok())
+                    .or_else(|| std::env::var("CHRONONODE_BITCOIN_LIGHT_RPC_PASSWORD").ok());
+                let rpc_api_key = config
+                    .get("rpc_api_key")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| std::env::var("CHRONONODE_BTC_RPC_API_KEY").ok())
+                    .or_else(|| std::env::var("CHRONONODE_BITCOIN_LIGHT_RPC_API_KEY").ok());
+                let rpc_api_key_header = config
+                    .get("rpc_api_key_header")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| std::env::var("CHRONONODE_BTC_RPC_API_KEY_HEADER").ok())
+                    .or_else(|| std::env::var("CHRONONODE_BITCOIN_LIGHT_RPC_API_KEY_HEADER").ok());
+
+                return Ok(Arc::new(BitcoinLightAdapter::new_rpc(
+                    rpc_url,
+                    rpc_username,
+                    rpc_password,
+                    rpc_api_key,
+                    rpc_api_key_header,
+                )));
+            }
+
             let mut api_urls = config
                 .get("api_urls")
                 .and_then(|v| v.as_array())
@@ -387,4 +767,28 @@ pub fn init() {
             Ok(Arc::new(BitcoinLightAdapter::new_with_fallbacks(api_urls)))
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_redact_url_hides_getblock_path_token() {
+        let redacted = BitcoinLightAdapter::redact_url("https://go.getblock.io/secret123");
+        assert!(redacted.contains("go.getblock.io/[redacted]"));
+        assert!(!redacted.contains("secret123"));
+    }
+
+    #[test]
+    fn test_rpc_value_to_sats() {
+        assert_eq!(
+            BitcoinLightAdapter::rpc_value_to_sats(&serde_json::json!(0.1)),
+            10_000_000
+        );
+        assert_eq!(
+            BitcoinLightAdapter::rpc_value_to_sats(&serde_json::json!("0.00000001")),
+            1
+        );
+    }
 }
