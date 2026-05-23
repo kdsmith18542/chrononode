@@ -35,7 +35,10 @@ url = "http://localhost:9070"
 api_urls = ["https://mempool.space", "https://blockstream.info"]
 
 [adapters.dogecoin]
-# BlockCypher endpoint for DOGE chain data
+# Provider mode: "blockcypher" (default) or "rpc"
+# mode = "rpc"
+
+# BlockCypher endpoint for DOGE chain data (mode="blockcypher")
 api_url = "https://api.blockcypher.com"
 
 # Optional: add additional compatible endpoints for failover
@@ -44,6 +47,15 @@ api_url = "https://api.blockcypher.com"
 # Optional: paid token to raise DOGE API limits
 # api_token = "your-blockcypher-token"
 # Or set CHRONONODE_DOGE_API_TOKEN in the environment.
+
+# JSON-RPC provider (mode="rpc"), e.g. QuickNode/GetBlock/Chainstack
+# rpc_url = "https://your-doge-rpc-endpoint"
+# Optional basic auth
+# rpc_username = "user"
+# rpc_password = "pass"
+# Optional API key header auth
+# rpc_api_key = "your-api-key"
+# rpc_api_key_header = "x-api-key"
 
 # --- Dormancy Detection (Phase 3) ---
 [dormancy]

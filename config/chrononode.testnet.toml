@@ -37,9 +37,11 @@ url = "http://localhost:9070"
 api_urls = ["https://mempool.space", "https://blockstream.info"]
 
 [adapters.dogecoin]
+# mode = "rpc"  # use managed JSON-RPC provider instead of BlockCypher
 api_url = "https://api.blockcypher.com"
 # Optional paid token to increase request quota:
 # api_token = "replace-with-blockcypher-token"
+# rpc_url = "https://your-doge-rpc-endpoint"
 
 [dormancy]
 # ~5 years at 10-min Bitcoin blocks; adjust per-chain below

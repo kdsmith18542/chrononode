@@ -27,6 +27,8 @@ Example chain IDs:
    echo 'CHRONONODE_DOGE_API_TOKEN=replace-with-token' | sudo tee -a /etc/chrononode/evm.env
    sudo chmod 600 /etc/chrononode/evm.env
    ```
+7. Alternative DOGE provider (recommended when BlockCypher is rate-limited):
+   set `[adapters.dogecoin] mode = "rpc"` and `rpc_url` in config, then restart ingest.
 
 ## Install
 

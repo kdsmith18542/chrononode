@@ -242,3 +242,73 @@ async fn test_doge_appends_api_token_query() {
     assert_eq!(height, 5000999);
     mock.assert();
 }
+
+#[tokio::test]
+async fn test_doge_rpc_latest_height() {
+    let mut server = Server::new_async().await;
+    let mock = server
+        .mock("POST", "/")
+        .match_body(Matcher::Regex("\"method\":\"getblockcount\"".into()))
+        .with_status(200)
+        .with_body(r#"{"jsonrpc":"2.0","id":"chrononode","result":6219000,"error":null}"#)
+        .create();
+
+    let adapter = DogeAdapter::new_rpc(&server.url(), None, None, None, None);
+    let height = adapter.latest_height().await.unwrap();
+    assert_eq!(height, 6219000);
+    mock.assert();
+}
+
+#[tokio::test]
+async fn test_doge_rpc_fetch_block_by_height() {
+    let mut server = Server::new_async().await;
+
+    let hash = "abcd1234ef567890abcd1234ef567890abcd1234ef567890abcd1234ef567890";
+
+    let _hash_mock = server
+        .mock("POST", "/")
+        .match_body(Matcher::Regex("\"method\":\"getblockhash\"".into()))
+        .with_status(200)
+        .with_body(format!(
+            r#"{{"jsonrpc":"2.0","id":"chrononode","result":"{}","error":null}}"#,
+            hash
+        ))
+        .create();
+
+    let block_body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "chrononode",
+        "result": {
+            "hash": hash,
+            "height": 424242u64,
+            "time": 1710000000u64,
+            "previousblockhash": "00112233",
+            "tx": [{
+                "txid": "aa55",
+                "locktime": 0u64,
+                "vin": [{"coinbase": "03abcd"}],
+                "vout": [{
+                    "value": 12.5,
+                    "scriptPubKey": {"addresses": ["DTestAddr1"]}
+                }]
+            }]
+        },
+        "error": null
+    });
+
+    let _block_mock = server
+        .mock("POST", "/")
+        .match_body(Matcher::Regex("\"method\":\"getblock\"".into()))
+        .with_status(200)
+        .with_body(block_body.to_string())
+        .create();
+
+    let adapter = DogeAdapter::new_rpc(&server.url(), None, None, None, None);
+    let block = adapter.fetch_block(424242).await.unwrap();
+    assert_eq!(block.height, 424242);
+    assert_eq!(block.timestamp, 1710000000);
+    assert_eq!(block.transactions.len(), 1);
+    assert_eq!(block.transactions[0].amount, 1_250_000_000);
+    assert_eq!(block.transactions[0].sender, b"coinbase");
+    assert_eq!(block.transactions[0].recipient, b"DTestAddr1");
+}

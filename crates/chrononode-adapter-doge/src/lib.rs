@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use chrononode_adapter_sdk::retry::retry_with_backoff_predicate;
 use chrononode_core::{BlockModel, ChainAdapter, ChronoBlock, ChronoTx, CoreError, Result};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::Arc;
 
 const MAX_RETRIES: u32 = 5;
@@ -73,11 +73,71 @@ struct BlockCypherVout {
     addresses: Option<Vec<String>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DogeProviderMode {
+    BlockCypher,
+    JsonRpc,
+}
+
+#[derive(Debug, Deserialize)]
+struct JsonRpcResponse<T> {
+    result: Option<T>,
+    error: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DogeRpcBlock {
+    hash: String,
+    height: u64,
+    time: u64,
+    previousblockhash: Option<String>,
+    #[serde(default)]
+    tx: Vec<DogeRpcTx>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DogeRpcTx {
+    txid: String,
+    #[serde(default)]
+    vin: Vec<DogeRpcVin>,
+    #[serde(default)]
+    vout: Vec<DogeRpcVout>,
+    #[serde(default)]
+    locktime: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DogeRpcVin {
+    txid: Option<String>,
+    vout: Option<u64>,
+    coinbase: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DogeRpcVout {
+    value: serde_json::Value,
+    #[serde(rename = "scriptPubKey")]
+    script_pub_key: DogeRpcScriptPubKey,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct DogeRpcScriptPubKey {
+    address: Option<String>,
+    addresses: Option<Vec<String>>,
+    hex: Option<String>,
+}
+
 pub struct DogeAdapter {
     chain_id: String,
     client: reqwest::Client,
+    mode: DogeProviderMode,
     api_urls: Vec<String>,
     api_token: Option<String>,
+    rpc_url: Option<String>,
+    rpc_username: Option<String>,
+    rpc_password: Option<String>,
+    rpc_api_key_header: Option<String>,
+    rpc_api_key: Option<String>,
 }
 
 impl DogeAdapter {
@@ -92,10 +152,46 @@ impl DogeAdapter {
                 .user_agent("chrononode/0.1")
                 .build()
                 .unwrap_or_default(),
+            mode: DogeProviderMode::BlockCypher,
             api_urls: Self::normalize_api_urls(api_urls),
             api_token: api_token
                 .map(|t| t.trim().to_string())
                 .filter(|t| !t.is_empty()),
+            rpc_url: None,
+            rpc_username: None,
+            rpc_password: None,
+            rpc_api_key_header: None,
+            rpc_api_key: None,
+        }
+    }
+
+    pub fn new_rpc(
+        rpc_url: &str,
+        rpc_username: Option<String>,
+        rpc_password: Option<String>,
+        rpc_api_key: Option<String>,
+        rpc_api_key_header: Option<String>,
+    ) -> Self {
+        Self {
+            chain_id: "dogecoin".to_string(),
+            client: reqwest::Client::builder()
+                .user_agent("chrononode/0.1")
+                .build()
+                .unwrap_or_default(),
+            mode: DogeProviderMode::JsonRpc,
+            api_urls: Vec::new(),
+            api_token: None,
+            rpc_url: Some(rpc_url.trim().trim_end_matches('/').to_string()),
+            rpc_username: rpc_username
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            rpc_password,
+            rpc_api_key_header: rpc_api_key_header
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            rpc_api_key: rpc_api_key
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
         }
     }
 
@@ -207,6 +303,199 @@ impl DogeAdapter {
         )
         .await
         .map_err(Into::into)
+    }
+
+    fn rpc_endpoint(&self) -> Result<&str> {
+        self.rpc_url
+            .as_deref()
+            .ok_or_else(|| CoreError::Adapter("missing dogecoin rpc_url".to_string()))
+    }
+
+    async fn rpc_call<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<T> {
+        let rpc_url = self.rpc_endpoint()?.to_string();
+        let display_url = Self::redact_url(&rpc_url);
+        let username = self.rpc_username.clone();
+        let password = self.rpc_password.clone();
+        let api_key = self.rpc_api_key.clone();
+        let api_key_header = self
+            .rpc_api_key_header
+            .clone()
+            .unwrap_or_else(|| "x-api-key".to_string());
+        let client = self.client.clone();
+        let method_name = method.to_string();
+
+        retry_with_backoff_predicate(
+            MAX_RETRIES,
+            1000,
+            || {
+                let client = client.clone();
+                let rpc_url = rpc_url.clone();
+                let display_url = display_url.clone();
+                let username = username.clone();
+                let password = password.clone();
+                let api_key = api_key.clone();
+                let api_key_header = api_key_header.clone();
+                let params = params.clone();
+                let method_name = method_name.clone();
+                async move {
+                    let body = serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": "chrononode",
+                        "method": method_name,
+                        "params": params,
+                    });
+
+                    let mut req = client
+                        .post(&rpc_url)
+                        .header(reqwest::header::CONTENT_TYPE, "application/json")
+                        .json(&body);
+                    if let Some(user) = username.as_deref() {
+                        req = req.basic_auth(user, password.as_deref());
+                    }
+                    if let Some(key) = api_key.as_deref() {
+                        req = req.header(&api_key_header, key);
+                    }
+
+                    let resp = req.send().await.map_err(|e| {
+                        FetchError::Retryable(format!("POST {} failed: {}", display_url, e))
+                    })?;
+
+                    if Self::is_retryable_status(resp.status()) {
+                        return Err(FetchError::Retryable(format!(
+                            "POST {} returned {} (retryable)",
+                            display_url,
+                            resp.status()
+                        )));
+                    }
+                    if !resp.status().is_success() {
+                        return Err(FetchError::Fatal(format!(
+                            "POST {} returned {}",
+                            display_url,
+                            resp.status()
+                        )));
+                    }
+
+                    let payload: JsonRpcResponse<T> = resp
+                        .json()
+                        .await
+                        .map_err(|e| FetchError::Fatal(format!("JSON parse failed: {}", e)))?;
+
+                    if let Some(result) = payload.result {
+                        Ok(result)
+                    } else {
+                        Err(FetchError::Fatal(format!(
+                            "RPC {} error: {:?}",
+                            method_name, payload.error
+                        )))
+                    }
+                }
+            },
+            |e: &FetchError| matches!(e, FetchError::Retryable(_)),
+        )
+        .await
+        .map_err(Into::into)
+    }
+
+    fn rpc_value_to_koinu(value: &serde_json::Value) -> u64 {
+        let doge = if let Some(f) = value.as_f64() {
+            f
+        } else if let Some(s) = value.as_str() {
+            s.parse::<f64>().unwrap_or(0.0)
+        } else if let Some(i) = value.as_i64() {
+            i as f64
+        } else if let Some(u) = value.as_u64() {
+            u as f64
+        } else {
+            0.0
+        };
+
+        if doge <= 0.0 || !doge.is_finite() {
+            0
+        } else {
+            (doge * 100_000_000.0).round() as u64
+        }
+    }
+
+    fn parse_block_rpc(&self, block: &DogeRpcBlock) -> ChronoBlock {
+        let transactions: Vec<ChronoTx> = block
+            .tx
+            .iter()
+            .map(|tx| {
+                let sender = if let Some(first_in) = tx.vin.first() {
+                    if first_in.coinbase.is_some() {
+                        b"coinbase".to_vec()
+                    } else if let Some(txid) = &first_in.txid {
+                        format!("{}:{}", txid, first_in.vout.unwrap_or(0)).into_bytes()
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    vec![]
+                };
+
+                let recipient = if let Some(first_out) = tx.vout.first() {
+                    if let Some(addr) = &first_out.script_pub_key.address {
+                        addr.as_bytes().to_vec()
+                    } else if let Some(addrs) = &first_out.script_pub_key.addresses {
+                        addrs
+                            .first()
+                            .map(|a| a.as_bytes().to_vec())
+                            .unwrap_or_default()
+                    } else {
+                        Self::decode_hex_safe(first_out.script_pub_key.hex.as_deref().unwrap_or(""))
+                    }
+                } else {
+                    vec![]
+                };
+
+                let total_koinu: u64 = tx
+                    .vout
+                    .iter()
+                    .map(|o| Self::rpc_value_to_koinu(&o.value))
+                    .sum();
+
+                let extra_data = serde_json::to_vec(&serde_json::json!({
+                    "vin": tx.vin,
+                    "vout": tx.vout,
+                }))
+                .unwrap_or_default();
+
+                ChronoTx {
+                    tx_hash: Self::decode_hex_safe(&tx.txid),
+                    sender,
+                    recipient,
+                    amount: total_koinu,
+                    nonce: tx.locktime,
+                    payload: vec![],
+                    gas_limit: 0,
+                    gas_used: 0,
+                    extra_data,
+                }
+            })
+            .collect();
+
+        let prev_hash = match &block.previousblockhash {
+            Some(h) => Self::decode_hex_safe(h),
+            None => vec![0u8; 32],
+        };
+
+        ChronoBlock {
+            schema_version: 1,
+            chain_id: self.chain_id.clone(),
+            height: block.height,
+            block_hash: Self::decode_hex_safe(&block.hash),
+            prev_hash,
+            timestamp: block.time,
+            block_model: "Utxo".to_string(),
+            hash_algorithm: "scrypt".to_string(),
+            transactions,
+            events: vec![],
+            extra_data: vec![],
+        }
     }
 
     /// Parse ISO 8601 timestamp ("2021-04-23T09:24:36Z") to Unix seconds.
@@ -321,7 +610,10 @@ impl ChainAdapter for DogeAdapter {
     }
 
     fn display_name(&self) -> &str {
-        "Dogecoin (BlockCypher)"
+        match self.mode {
+            DogeProviderMode::BlockCypher => "Dogecoin (BlockCypher)",
+            DogeProviderMode::JsonRpc => "Dogecoin (JSON-RPC)",
+        }
     }
 
     fn block_model(&self) -> BlockModel {
@@ -329,44 +621,117 @@ impl ChainAdapter for DogeAdapter {
     }
 
     async fn latest_height(&self) -> Result<u64> {
-        let json = self.get("/v1/doge/main").await?;
-        let chain: BlockCypherChain = serde_json::from_value(json)
-            .map_err(|e| CoreError::Adapter(format!("failed to parse chain info: {}", e)))?;
-        Ok(chain.height)
+        match self.mode {
+            DogeProviderMode::BlockCypher => {
+                let json = self.get("/v1/doge/main").await?;
+                let chain: BlockCypherChain = serde_json::from_value(json).map_err(|e| {
+                    CoreError::Adapter(format!("failed to parse chain info: {}", e))
+                })?;
+                Ok(chain.height)
+            }
+            DogeProviderMode::JsonRpc => {
+                self.rpc_call("getblockcount", serde_json::json!([])).await
+            }
+        }
     }
 
     async fn fetch_block(&self, height: u64) -> Result<ChronoBlock> {
-        let json = self
-            .get(&format!("/v1/doge/main/blocks/{}", height))
-            .await?;
-        let block: BlockCypherBlock = serde_json::from_value(json)
-            .map_err(|e| CoreError::Adapter(format!("failed to parse block: {}", e)))?;
-        let mut txs = Vec::with_capacity(block.txids.len());
-        for txid in &block.txids {
-            let tx = self.fetch_tx(txid).await?;
-            txs.push(tx);
+        match self.mode {
+            DogeProviderMode::BlockCypher => {
+                let json = self
+                    .get(&format!("/v1/doge/main/blocks/{}", height))
+                    .await?;
+                let block: BlockCypherBlock = serde_json::from_value(json)
+                    .map_err(|e| CoreError::Adapter(format!("failed to parse block: {}", e)))?;
+                let mut txs = Vec::with_capacity(block.txids.len());
+                for txid in &block.txids {
+                    let tx = self.fetch_tx(txid).await?;
+                    txs.push(tx);
+                }
+                Ok(self.parse_block(&block, &txs))
+            }
+            DogeProviderMode::JsonRpc => {
+                let hash: String = self
+                    .rpc_call("getblockhash", serde_json::json!([height]))
+                    .await?;
+                let block: DogeRpcBlock = self
+                    .rpc_call("getblock", serde_json::json!([hash, 2]))
+                    .await?;
+                Ok(self.parse_block_rpc(&block))
+            }
         }
-        Ok(self.parse_block(&block, &txs))
     }
 
     async fn fetch_block_by_hash(&self, hash: &[u8]) -> Result<ChronoBlock> {
         let hash_hex = hex::encode(hash);
-        let json = self
-            .get(&format!("/v1/doge/main/blocks/{}", hash_hex))
-            .await?;
-        let block: BlockCypherBlock = serde_json::from_value(json)
-            .map_err(|e| CoreError::Adapter(format!("failed to parse block: {}", e)))?;
-        let mut txs = Vec::with_capacity(block.txids.len());
-        for txid in &block.txids {
-            let tx = self.fetch_tx(txid).await?;
-            txs.push(tx);
+        match self.mode {
+            DogeProviderMode::BlockCypher => {
+                let json = self
+                    .get(&format!("/v1/doge/main/blocks/{}", hash_hex))
+                    .await?;
+                let block: BlockCypherBlock = serde_json::from_value(json)
+                    .map_err(|e| CoreError::Adapter(format!("failed to parse block: {}", e)))?;
+                let mut txs = Vec::with_capacity(block.txids.len());
+                for txid in &block.txids {
+                    let tx = self.fetch_tx(txid).await?;
+                    txs.push(tx);
+                }
+                Ok(self.parse_block(&block, &txs))
+            }
+            DogeProviderMode::JsonRpc => {
+                let block: DogeRpcBlock = self
+                    .rpc_call("getblock", serde_json::json!([hash_hex, 2]))
+                    .await?;
+                Ok(self.parse_block_rpc(&block))
+            }
         }
-        Ok(self.parse_block(&block, &txs))
     }
 }
 
 pub fn init() {
     chrononode_adapter_sdk::registry::register("dogecoin", "Dogecoin (BlockCypher)", |config| {
+        let mode = config
+            .get("mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("blockcypher");
+
+        if mode.eq_ignore_ascii_case("rpc") || mode.eq_ignore_ascii_case("json-rpc") {
+            let rpc_url = config
+                .get("rpc_url")
+                .and_then(|v| v.as_str())
+                .or_else(|| config.get("api_url").and_then(|v| v.as_str()))
+                .ok_or_else(|| "dogecoin adapter mode=rpc requires rpc_url".to_string())?;
+
+            let rpc_username = config
+                .get("rpc_username")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .or_else(|| std::env::var("CHRONONODE_DOGE_RPC_USERNAME").ok());
+            let rpc_password = config
+                .get("rpc_password")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .or_else(|| std::env::var("CHRONONODE_DOGE_RPC_PASSWORD").ok());
+            let rpc_api_key = config
+                .get("rpc_api_key")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .or_else(|| std::env::var("CHRONONODE_DOGE_RPC_API_KEY").ok());
+            let rpc_api_key_header = config
+                .get("rpc_api_key_header")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .or_else(|| std::env::var("CHRONONODE_DOGE_RPC_API_KEY_HEADER").ok());
+
+            return Ok(Arc::new(DogeAdapter::new_rpc(
+                rpc_url,
+                rpc_username,
+                rpc_password,
+                rpc_api_key,
+                rpc_api_key_header,
+            )));
+        }
+
         let mut api_urls = config
             .get("api_urls")
             .and_then(|v| v.as_array())
