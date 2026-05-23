@@ -42,6 +42,5 @@ tmp/
 **/tmp/
 
 # Project planning (local only)
-plan.md
 agents.md
 AGENTS.md

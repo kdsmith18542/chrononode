@@ -42,4 +42,4 @@ ChainAdapter.fetch_block(height)
 
 ## Design Principles
 
-See `chrononode-plan.md` Section 16.
+See `plan.md` (Architecture section).
