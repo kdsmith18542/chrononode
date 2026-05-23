@@ -10,6 +10,7 @@ pub struct ArchivePipeline {
     pub storage: Arc<dyn StorageBackend>,
     pub index: Box<dyn IndexBackend>,
     pub cache: CacheLayer,
+    pub config: chrononode_core::CoreConfig,
 }
 
 impl ArchivePipeline {
@@ -23,6 +24,22 @@ impl ArchivePipeline {
             storage,
             index,
             cache: CacheLayer::default(),
+            config: chrononode_core::CoreConfig::default(),
+        }
+    }
+
+    pub fn with_config(
+        adapter: Arc<dyn ChainAdapter>,
+        storage: Arc<dyn StorageBackend>,
+        index: Box<dyn IndexBackend>,
+        config: chrononode_core::CoreConfig,
+    ) -> Self {
+        Self {
+            adapter: Arc::new(tokio::sync::RwLock::new(adapter)),
+            storage,
+            index,
+            cache: CacheLayer::default(),
+            config,
         }
     }
 
@@ -37,6 +54,7 @@ impl ArchivePipeline {
             storage,
             index,
             cache,
+            config: chrononode_core::CoreConfig::default(),
         }
     }
 
@@ -47,7 +65,7 @@ impl ArchivePipeline {
     pub async fn archive_block(&self, height: u64) -> Result<(ChronoBlock, StoragePointer)> {
         if let Some(pending) = self.cache.pending.get(&height) {
             let block = (*pending).clone();
-            let bytes = super::serializer::serialize_block(&block)?;
+            let bytes = super::serializer::serialize_block(&block, self.config.compression)?;
             
             let start_put = std::time::Instant::now();
             let put_res = self.storage.put(&bytes).await;
@@ -75,7 +93,7 @@ impl ArchivePipeline {
 
         let adapter = self.get_adapter().await;
         let block = adapter.fetch_block(height).await?;
-        let bytes = super::serializer::serialize_block(&block)?;
+        let bytes = super::serializer::serialize_block(&block, self.config.compression)?;
         let block_hash_hex = block.block_hash_hex();
 
         if self
@@ -124,6 +142,56 @@ impl ArchivePipeline {
         self.index
             .archive_block_atomic(&insert, &block.transactions, &block.events)
             .await?;
+
+        // Trigger block pruning logic based on configuration
+        let mut prunable_blocks = Vec::new();
+        match self.config.pruning.mode {
+            chrononode_core::PruningMode::Height => {
+                if height > self.config.pruning.keep_blocks {
+                    let before_height = height - self.config.pruning.keep_blocks;
+                    prunable_blocks = self.index.get_prunable_blocks_by_height(&block.chain_id, before_height).await?;
+                }
+            }
+            chrononode_core::PruningMode::Age => {
+                let current_time = block.timestamp;
+                if current_time > self.config.pruning.keep_duration_secs {
+                    let before_timestamp = current_time - self.config.pruning.keep_duration_secs;
+                    prunable_blocks = self.index.get_prunable_blocks_by_age(&block.chain_id, before_timestamp).await?;
+                }
+            }
+            chrononode_core::PruningMode::None => {}
+        }
+
+        let mut pruned_heights = Vec::new();
+        if !prunable_blocks.is_empty() {
+            for (h, ptr_str) in prunable_blocks {
+                if let Some(ptr) = StoragePointer::from_string(&ptr_str) {
+                    if let Err(e) = self.storage.delete(&ptr).await {
+                        tracing::warn!("Failed to delete pruned block storage at height {}: {}", h, e);
+                    }
+                }
+                pruned_heights.push(h);
+            }
+            self.index.set_blocks_pruned(&block.chain_id, &pruned_heights).await?;
+        }
+
+        // If UTXO pruning is active, trigger spent UTXO cleanup
+        if self.config.pruning.prune_utxos {
+            match self.config.pruning.mode {
+                chrononode_core::PruningMode::Height => {
+                    if height > self.config.pruning.keep_blocks {
+                        let before_height = height - self.config.pruning.keep_blocks;
+                        self.index.prune_spent_utxos(&block.chain_id, before_height).await?;
+                    }
+                }
+                chrononode_core::PruningMode::Age => {
+                    if let Some(&max_h) = pruned_heights.iter().max() {
+                        self.index.prune_spent_utxos(&block.chain_id, max_h).await?;
+                    }
+                }
+                chrononode_core::PruningMode::None => {}
+            }
+        }
 
         self.cache
             .archived

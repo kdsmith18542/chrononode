@@ -67,7 +67,12 @@ describe('TypeScript SDK Client & Proof Verification', () => {
         if (url.pathname === '/health') {
           res.end(JSON.stringify({ status: 'ok', uptime_seconds: 123 }));
         } else if (url.pathname === '/v1/chains') {
-          res.end(JSON.stringify([{ chain_id: 'mock', display_name: 'Mock Chain' }]));
+          const page = url.searchParams.get('page');
+          if (page === '2') {
+            res.end(JSON.stringify([]));
+          } else {
+            res.end(JSON.stringify([{ chain_id: 'mock', display_name: 'Mock Chain' }]));
+          }
         } else if (url.pathname === '/v1/chains/mock/blocks/2') {
           res.end(JSON.stringify({ chain_id: 'mock', height: 2, block_hash: 'abc', timestamp: 1000, tx_count: 5, event_count: 3 }));
         } else if (url.pathname === '/v1/chains/mock/blocks/hash/abc') {
@@ -145,6 +150,9 @@ describe('TypeScript SDK Client & Proof Verification', () => {
     const chains = await client.listChains();
     assert.strictEqual(chains.length, 1);
     assert.strictEqual(chains[0].chain_id, 'mock');
+
+    const emptyChains = await client.listChains(2, 1);
+    assert.strictEqual(emptyChains.length, 0);
   });
 
   test('Client query block by height and hash', async () => {

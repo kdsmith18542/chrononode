@@ -67,7 +67,7 @@ async fn setup_test_server() -> (String, TempDir) {
 
     for h in 0..5 {
         let block = make_test_block(h);
-        let bytes = chrononode_cli::archive::serializer::serialize_block(&block).unwrap();
+        let bytes = chrononode_cli::archive::serializer::serialize_block(&block, false).unwrap();
         let pointer = pipeline.storage.put(&bytes).await.unwrap();
         pipeline.storage.pin(&pointer).await.unwrap();
         let pointer_str = pointer.to_string();
@@ -115,10 +115,17 @@ async fn test_sdk_health_and_chains() {
     let health = client.health().await.unwrap();
     assert_eq!(health.status, "ok");
 
-    let chains = client.list_chains().await.unwrap();
+    let chains = client.list_chains(None, None).await.unwrap();
     assert_eq!(chains.len(), 1);
     assert_eq!(chains[0].chain_id, "mock");
     assert_eq!(chains[0].display_name, "Mock Chain");
+
+    // Test with pagination
+    let paginated_chains = client.list_chains(Some(1), Some(1)).await.unwrap();
+    assert_eq!(paginated_chains.len(), 1);
+
+    let empty_chains = client.list_chains(Some(2), Some(1)).await.unwrap();
+    assert!(empty_chains.is_empty());
 }
 
 #[tokio::test]

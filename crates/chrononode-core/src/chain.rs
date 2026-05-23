@@ -76,5 +76,9 @@ pub trait StorageBackend: Send + Sync {
 
     async fn pin(&self, pointer: &StoragePointer) -> Result<()>;
 
+    async fn delete(&self, _pointer: &StoragePointer) -> Result<()> {
+        Ok(())
+    }
+
     async fn health_check(&self) -> Result<StorageHealth>;
 }

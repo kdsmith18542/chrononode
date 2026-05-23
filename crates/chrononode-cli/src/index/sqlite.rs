@@ -196,6 +196,29 @@ impl SqliteIndex {
         .await
         .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
 
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS utxos (
+                chain_id TEXT NOT NULL,
+                tx_hash_hex TEXT NOT NULL,
+                vout_index INTEGER NOT NULL,
+                address TEXT,
+                amount INTEGER NOT NULL,
+                block_height INTEGER NOT NULL,
+                spent_block_height INTEGER,
+                PRIMARY KEY (chain_id, tx_hash_hex, vout_index)
+            )",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_utxos_spent ON utxos(chain_id, spent_block_height)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
         Ok(())
     }
 
@@ -455,9 +478,11 @@ impl SqliteIndex {
         Ok(row.map(|r| r.0))
     }
 
-    pub async fn get_chain_list(&self) -> Result<Vec<(String, String)>> {
+    pub async fn get_chain_list(&self, limit: u64, offset: u64) -> Result<Vec<(String, String)>> {
         let rows: Vec<(String, String)> =
-            sqlx::query_as("SELECT chain_id, display_name FROM chains")
+            sqlx::query_as("SELECT chain_id, display_name FROM chains ORDER BY created_at DESC LIMIT ? OFFSET ?")
+                .bind(limit as i64)
+                .bind(offset as i64)
                 .fetch_all(&self.pool)
                 .await
                 .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
@@ -709,6 +734,47 @@ impl SqliteIndex {
             .execute(&mut *tx)
             .await
             .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+            if let Ok(extra) = serde_json::from_slice::<serde_json::Value>(&tx_item.extra_data) {
+                if let (Some(vin), Some(vout)) = (extra.get("vin").and_then(|v| v.as_array()), extra.get("vout").and_then(|v| v.as_array())) {
+                    for (vout_idx, out_val) in vout.iter().enumerate() {
+                        let val_btc = out_val.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        let amount = (val_btc * 100_000_000.0).round() as i64;
+                        let address = out_val.get("scriptPubKey")
+                            .and_then(|s| s.get("address"))
+                            .and_then(|a| a.as_str());
+                        sqlx::query(
+                            "INSERT OR IGNORE INTO utxos
+                             (chain_id, tx_hash_hex, vout_index, address, amount, block_height, spent_block_height)
+                             VALUES (?, ?, ?, ?, ?, ?, NULL)",
+                        )
+                        .bind(block.chain_id)
+                        .bind(hex::encode(&tx_item.tx_hash))
+                        .bind(vout_idx as i32)
+                        .bind(address)
+                        .bind(amount)
+                        .bind(block.height as i64)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+                    }
+                    for in_val in vin {
+                        if let (Some(in_txid), Some(in_vout)) = (in_val.get("txid").and_then(|t| t.as_str()), in_val.get("vout").and_then(|v| v.as_i64())) {
+                            sqlx::query(
+                                "UPDATE utxos SET spent_block_height = ?
+                                 WHERE chain_id = ? AND tx_hash_hex = ? AND vout_index = ? AND spent_block_height IS NULL",
+                            )
+                            .bind(block.height as i64)
+                            .bind(block.chain_id)
+                            .bind(in_txid)
+                            .bind(in_vout)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+                        }
+                    }
+                }
+            }
         }
 
         for ev in events.iter() {
@@ -776,6 +842,71 @@ impl SqliteIndex {
         .execute(&self.pool)
         .await
         .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn prune_spent_utxos(&self, chain_id: &str, before_height: u64) -> Result<()> {
+        sqlx::query(
+            "DELETE FROM utxos WHERE chain_id = ? AND spent_block_height IS NOT NULL AND spent_block_height < ?",
+        )
+        .bind(chain_id)
+        .bind(before_height as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn get_prunable_blocks_by_height(
+        &self,
+        chain_id: &str,
+        before_height: u64,
+    ) -> Result<Vec<(u64, String)>> {
+        let rows: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT height, storage_pointer FROM archived_blocks WHERE chain_id = ? AND height < ? AND storage_pointer != ''",
+        )
+        .bind(chain_id)
+        .bind(before_height as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(rows.into_iter().map(|(h, p)| (h as u64, p)).collect())
+    }
+
+    pub async fn get_prunable_blocks_by_age(
+        &self,
+        chain_id: &str,
+        before_timestamp: u64,
+    ) -> Result<Vec<(u64, String)>> {
+        let rows: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT height, storage_pointer FROM archived_blocks WHERE chain_id = ? AND timestamp < ? AND storage_pointer != ''",
+        )
+        .bind(chain_id)
+        .bind(before_timestamp as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(rows.into_iter().map(|(h, p)| (h as u64, p)).collect())
+    }
+
+    pub async fn set_blocks_pruned(&self, chain_id: &str, heights: &[u64]) -> Result<()> {
+        if heights.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self.pool.begin().await
+            .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        for &height in heights {
+            sqlx::query(
+                "UPDATE archived_blocks SET storage_pointer = '' WHERE chain_id = ? AND height = ?",
+            )
+            .bind(chain_id)
+            .bind(height as i64)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        }
+        tx.commit().await
+            .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
         Ok(())
     }
 }

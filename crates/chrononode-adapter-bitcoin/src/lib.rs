@@ -57,21 +57,21 @@ struct BitcoinTxJson {
     vout: Vec<BitcoinVoutJson>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct BitcoinVinJson {
     coinbase: Option<String>,
     txid: Option<String>,
     vout: Option<u64>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct BitcoinVoutJson {
     value: f64,
     #[serde(rename = "scriptPubKey")]
     script_pub_key: BitcoinScriptPubKeyJson,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct BitcoinScriptPubKeyJson {
     hex: String,
     address: Option<String>,
@@ -202,6 +202,11 @@ impl BitcoinAdapter {
                 let total_btc: f64 = tx.vout.iter().map(|o| o.value).sum();
                 let amount_sats = (total_btc * 100_000_000.0).round() as u64;
 
+                let extra_data = serde_json::to_vec(&serde_json::json!({
+                    "vin": tx.vin,
+                    "vout": tx.vout,
+                })).unwrap_or_default();
+
                 ChronoTx {
                     tx_hash: Self::decode_hex_safe(&tx.txid),
                     sender,
@@ -211,7 +216,7 @@ impl BitcoinAdapter {
                     payload: vec![],
                     gas_limit: 0,
                     gas_used: 0,
-                    extra_data: vec![],
+                    extra_data,
                 }
             })
             .collect();

@@ -42,9 +42,17 @@ class ChronoNodeClient:
         """Queries the health status of the ChronoNode API."""
         return self._request("GET", "/health")
         
-    def list_chains(self) -> List[Dict[str, Any]]:
-        """Lists the active blockchain networks registered on the node."""
-        return self._request("GET", "/v1/chains")
+    def list_chains(self, page: Optional[int] = None, per_page: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Lists the active blockchain networks registered on the node with optional pagination."""
+        path = "/v1/chains"
+        params = []
+        if page is not None:
+            params.append(f"page={page}")
+        if per_page is not None:
+            params.append(f"per_page={per_page}")
+        if params:
+            path += "?" + "&".join(params)
+        return self._request("GET", path)
         
     def get_block_by_height(self, chain_id: str, height: int) -> Dict[str, Any]:
         """Retrieves summary block metadata by height."""

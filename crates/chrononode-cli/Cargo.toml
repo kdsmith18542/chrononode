@@ -12,6 +12,7 @@ chrononode-adapter-mock = { path = "../chrononode-adapter-mock" }
 chrononode-adapter-baals = { path = "../chrononode-adapter-baals" }
 chrononode-adapter-localfile = { path = "../chrononode-adapter-localfile" }
 chrononode-adapter-bitcoin = { path = "../chrononode-adapter-bitcoin" }
+chrononode-adapter-ethereum = { path = "../chrononode-adapter-ethereum" }
 
 anyhow = "1"
 thiserror = "2"
@@ -36,6 +37,11 @@ axum = "0.8"
 tower = { version = "0.5", features = ["util", "limit"] }
 tower-http = { version = "0.6", features = ["cors", "trace", "limit", "auth"] }
 http-body-util = "0.1"
+
+async-graphql = "8.0.0-rc.5"
+async-graphql-axum = "8.0.0-rc.5"
+jsonrpsee = { version = "0.24", features = ["server", "macros"] }
+zstd = "0.13"
 
 reqwest = { version = "0.13", features = ["json", "multipart"] }
 
@@ -70,6 +76,7 @@ tempfile = "3"
 mockito = "1"
 pretty_assertions = "1"
 sha2 = "0.10"
+proptest = "1.5"
 
 [[bench]]
 name = "benchmarks"

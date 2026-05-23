@@ -64,7 +64,7 @@ pub trait IndexBackend: Send + Sync {
 
     async fn get_block_hash_hex(&self, chain_id: &str, height: u64) -> Result<Option<String>>;
 
-    async fn get_chain_list(&self) -> Result<Vec<(String, String)>>;
+    async fn get_chain_list(&self, limit: u64, offset: u64) -> Result<Vec<(String, String)>>;
 
     async fn count_blocks(&self, chain_id: &str) -> Result<u64>;
 
@@ -150,6 +150,22 @@ pub trait IndexBackend: Send + Sync {
         block_hash_hex: &str,
         events: &[chrononode_core::ChronoEvent],
     ) -> Result<()>;
+
+    async fn prune_spent_utxos(&self, chain_id: &str, before_height: u64) -> Result<()>;
+
+    async fn get_prunable_blocks_by_height(
+        &self,
+        chain_id: &str,
+        before_height: u64,
+    ) -> Result<Vec<(u64, String)>>;
+
+    async fn get_prunable_blocks_by_age(
+        &self,
+        chain_id: &str,
+        before_timestamp: u64,
+    ) -> Result<Vec<(u64, String)>>;
+
+    async fn set_blocks_pruned(&self, chain_id: &str, heights: &[u64]) -> Result<()>;
 }
 
 #[allow(unused_variables)]
@@ -214,8 +230,8 @@ impl IndexBackend for SqliteIndex {
         SqliteIndex::get_block_hash_hex(self, chain_id, height).await
     }
 
-    async fn get_chain_list(&self) -> Result<Vec<(String, String)>> {
-        SqliteIndex::get_chain_list(self).await
+    async fn get_chain_list(&self, limit: u64, offset: u64) -> Result<Vec<(String, String)>> {
+        SqliteIndex::get_chain_list(self, limit, offset).await
     }
 
     async fn count_blocks(&self, chain_id: &str) -> Result<u64> {
@@ -349,6 +365,30 @@ impl IndexBackend for SqliteIndex {
         SqliteIndex::insert_events_for_block(self, chain_id, block_height, block_hash_hex, events)
             .await
     }
+
+    async fn prune_spent_utxos(&self, chain_id: &str, before_height: u64) -> Result<()> {
+        SqliteIndex::prune_spent_utxos(self, chain_id, before_height).await
+    }
+
+    async fn get_prunable_blocks_by_height(
+        &self,
+        chain_id: &str,
+        before_height: u64,
+    ) -> Result<Vec<(u64, String)>> {
+        SqliteIndex::get_prunable_blocks_by_height(self, chain_id, before_height).await
+    }
+
+    async fn get_prunable_blocks_by_age(
+        &self,
+        chain_id: &str,
+        before_timestamp: u64,
+    ) -> Result<Vec<(u64, String)>> {
+        SqliteIndex::get_prunable_blocks_by_age(self, chain_id, before_timestamp).await
+    }
+
+    async fn set_blocks_pruned(&self, chain_id: &str, heights: &[u64]) -> Result<()> {
+        SqliteIndex::set_blocks_pruned(self, chain_id, heights).await
+    }
 }
 
 #[cfg(feature = "postgres")]
@@ -395,8 +435,8 @@ impl IndexBackend for PostgresIndex {
         PostgresIndex::get_block_hash_hex(self, chain_id, height).await
     }
 
-    async fn get_chain_list(&self) -> Result<Vec<(String, String)>> {
-        PostgresIndex::get_chain_list(self).await
+    async fn get_chain_list(&self, limit: u64, offset: u64) -> Result<Vec<(String, String)>> {
+        PostgresIndex::get_chain_list(self, limit, offset).await
     }
 
     async fn count_blocks(&self, chain_id: &str) -> Result<u64> {
@@ -535,5 +575,29 @@ impl IndexBackend for PostgresIndex {
     ) -> Result<()> {
         PostgresIndex::insert_events_for_block(self, chain_id, block_height, block_hash_hex, events)
             .await
+    }
+
+    async fn prune_spent_utxos(&self, chain_id: &str, before_height: u64) -> Result<()> {
+        PostgresIndex::prune_spent_utxos(self, chain_id, before_height).await
+    }
+
+    async fn get_prunable_blocks_by_height(
+        &self,
+        chain_id: &str,
+        before_height: u64,
+    ) -> Result<Vec<(u64, String)>> {
+        PostgresIndex::get_prunable_blocks_by_height(self, chain_id, before_height).await
+    }
+
+    async fn get_prunable_blocks_by_age(
+        &self,
+        chain_id: &str,
+        before_timestamp: u64,
+    ) -> Result<Vec<(u64, String)>> {
+        PostgresIndex::get_prunable_blocks_by_age(self, chain_id, before_timestamp).await
+    }
+
+    async fn set_blocks_pruned(&self, chain_id: &str, heights: &[u64]) -> Result<()> {
+        PostgresIndex::set_blocks_pruned(self, chain_id, heights).await
     }
 }

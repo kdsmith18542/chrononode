@@ -27,11 +27,14 @@ class MockHTTPHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"status": "ok", "uptime_seconds": 1234}).encode('utf-8'))
             
-        elif self.path == "/v1/chains":
+        elif self.path.startswith("/v1/chains") and not self.path.startswith("/v1/chains/"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps([{"chain_id": "baals", "display_name": "BaaLS Network"}]).encode('utf-8'))
+            if "page=2" in self.path:
+                self.wfile.write(json.dumps([]).encode('utf-8'))
+            else:
+                self.wfile.write(json.dumps([{"chain_id": "baals", "display_name": "BaaLS Network"}]).encode('utf-8'))
             
         elif self.path == "/v1/chains/baals/blocks/500":
             self.send_response(200)
@@ -243,6 +246,10 @@ class TestChronoNodeSDK(unittest.TestCase):
         chains = self.client.list_chains()
         self.assertEqual(len(chains), 1)
         self.assertEqual(chains[0]["chain_id"], "baals")
+
+        # Test with pagination
+        chains_paginated = self.client.list_chains(page=2, per_page=1)
+        self.assertEqual(len(chains_paginated), 0)
 
     def test_client_get_block_by_height(self):
         block = self.client.get_block_by_height("baals", 500)

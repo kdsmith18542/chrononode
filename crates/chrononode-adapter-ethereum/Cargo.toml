@@ -1,0 +1,20 @@
+[package]
+name = "chrononode-adapter-ethereum"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ChronoNode Ethereum adapter — ingest blocks, txs, and receipts from Ethereum via JSON-RPC"
+
+[dependencies]
+chrononode-core = { path = "../chrononode-core" }
+chrononode-adapter-sdk = { path = "../chrononode-adapter-sdk" }
+async-trait = "0.1"
+reqwest = { version = "0.13", features = ["json"] }
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures = "0.3"
+
+[dev-dependencies]
+mockito = "1"
+tokio = { version = "1", features = ["macros"] }

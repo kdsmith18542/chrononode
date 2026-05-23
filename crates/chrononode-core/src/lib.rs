@@ -7,7 +7,7 @@ pub mod signing;
 
 pub use block::{ChronoBlock, ChronoEvent, ChronoTx};
 pub use chain::{BlockModel, ChainAdapter, StorageBackend, StorageHealth, StoragePointer};
-pub use config::{CoreConfig, RepairPolicy};
+pub use config::{CoreConfig, RepairPolicy, PruningConfig, PruningMode};
 pub use error::CoreError;
 pub use proof::MerkleLeaf;
 pub use signing::{verify_signature, OperatorKeypair};

@@ -34,40 +34,51 @@ pub struct RateLimiter {
 
 impl RateLimiter {
     pub fn new(max_per_second: u64) -> Self {
+        let max_per_second = max_per_second.max(1).min(16_777_215);
         Self {
-            max_per_second: max_per_second.max(1),
+            max_per_second,
             baseline: Instant::now(),
-            state: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            state: Arc::new(std::sync::atomic::AtomicU64::new(max_per_second)),
         }
     }
 
     pub fn allow(&self) -> bool {
-        let now_secs = self.baseline.elapsed().as_secs() as u32;
+        let now_ms = self.baseline.elapsed().as_millis() as u64 & 0xFF_FFFF_FFFF; // 40 bits
         let mut current = self.state.load(std::sync::atomic::Ordering::Relaxed);
         loop {
-            let current_window = (current >> 32) as u32;
-            let current_count = (current & 0xFFFF_FFFF) as u32;
+            let last_refill_ms = current >> 24;
+            let current_tokens = current & 0xFF_FFFF;
 
-            let (new_window, new_count) = if now_secs > current_window {
-                (now_secs, 1)
+            let elapsed_ms = if now_ms >= last_refill_ms {
+                now_ms - last_refill_ms
             } else {
-                (current_window, current_count.saturating_add(1))
+                (0x100_0000_0000 - last_refill_ms) + now_ms
             };
 
-            if new_count as u64 > self.max_per_second {
-                if now_secs == current_window {
-                    return false;
-                }
+            let refilled_tokens = (self.max_per_second * elapsed_ms) / 1000;
+            let new_tokens = current_tokens + refilled_tokens;
+
+            let (next_tokens, next_refill_ms) = if new_tokens >= self.max_per_second {
+                (self.max_per_second, now_ms)
+            } else {
+                let time_consumed_ms = (refilled_tokens * 1000) / self.max_per_second;
+                (new_tokens, last_refill_ms + time_consumed_ms)
+            };
+
+            if next_tokens == 0 {
+                return false;
             }
 
-            let next = ((new_window as u64) << 32) | (new_count as u64);
+            let final_tokens = next_tokens - 1;
+            let next = (next_refill_ms << 24) | final_tokens;
+
             match self.state.compare_exchange_weak(
                 current,
                 next,
                 std::sync::atomic::Ordering::Relaxed,
                 std::sync::atomic::Ordering::Relaxed,
             ) {
-                Ok(_) => return new_count as u64 <= self.max_per_second,
+                Ok(_) => return true,
                 Err(actual) => current = actual,
             }
         }
@@ -82,13 +93,13 @@ pub struct HealthResponse {
     pub uptime_seconds: u64,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, Clone, ToSchema)]
 pub struct ChainInfo {
     pub chain_id: String,
     pub display_name: String,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, Clone, ToSchema)]
 pub struct BlockResponse {
     pub chain_id: String,
     pub height: u64,
@@ -122,7 +133,10 @@ async fn health(State(state): State<Arc<ApiState>>) -> Json<HealthResponse> {
     })
 }
 
-async fn list_chains(State(state): State<Arc<ApiState>>) -> ApiResult<Vec<ChainInfo>> {
+async fn list_chains(
+    State(state): State<Arc<ApiState>>,
+    Query(limit_query): Query<LimitQuery>,
+) -> ApiResult<Vec<ChainInfo>> {
     state.metrics.increment_requests();
     let pipeline = state.pipeline.as_ref().ok_or_else(|| {
         (
@@ -130,9 +144,13 @@ async fn list_chains(State(state): State<Arc<ApiState>>) -> ApiResult<Vec<ChainI
             "pipeline not initialized".to_string(),
         )
     })?;
+    let page = limit_query.page.unwrap_or(1).max(1);
+    let per_page = limit_query.per_page.or(limit_query.limit).unwrap_or(20).min(100);
+    let offset = (page - 1) * per_page;
+
     let rows = pipeline
         .index
-        .get_chain_list()
+        .get_chain_list(per_page, offset)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let chains = rows
@@ -608,6 +626,19 @@ async fn create_checkpoint(
 struct ApiDoc;
 
 pub fn build_router(state: Arc<ApiState>) -> Router {
+    use crate::api::rpc::ChronoRpcServer;
+
+    let gql_schema = async_graphql::Schema::build(
+        crate::api::graphql::Query,
+        async_graphql::EmptyMutation,
+        async_graphql::EmptySubscription,
+    )
+    .data(state.clone())
+    .finish();
+
+    let rpc_impl = crate::api::rpc::ChronoRpcImpl { state: state.clone() };
+    let rpc_module = Arc::new(ChronoRpcServer::into_rpc(rpc_impl));
+
     let mut router = Router::new()
         .route("/health", get(health))
         .route("/v1/chains", get(list_chains))
@@ -637,7 +668,14 @@ pub fn build_router(state: Arc<ApiState>) -> Router {
             get(get_events_by_type),
         )
         .route("/metrics", get(metrics_prometheus))
+        .route(
+            "/graphql",
+            get(crate::api::graphql::graphql_playground).post(crate::api::graphql::graphql_handler),
+        )
+        .route("/rpc", post(crate::api::rpc::rpc_handler))
         .merge(SwaggerUi::new("/api-docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .layer(axum::Extension(gql_schema))
+        .layer(axum::Extension(rpc_module))
         .with_state(state.clone());
 
     router = router.layer(middleware::from_fn_with_state(

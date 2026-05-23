@@ -132,4 +132,45 @@ mod tests {
         let sig_bytes: [u8; 64] = sig.to_bytes();
         assert!(verify_signature(&pubkey, &sig_bytes, message));
     }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn test_signature_verification_properties(
+            msg in prop::collection::vec(any::<u8>(), 1..1000),
+            seed in prop::array::uniform32(any::<u8>()),
+        ) {
+            let keypair = OperatorKeypair::from_seed(&seed);
+            let sig = keypair.sign(&msg);
+            let pubkey = keypair.verifying_key_bytes();
+            let sig_bytes: [u8; 64] = sig.to_bytes();
+
+            // Property 1: Valid signatures verify successfully
+            prop_assert!(verify_signature(&pubkey, &sig_bytes, &msg));
+            prop_assert!(keypair.verify(&sig, &msg).is_ok());
+
+            // Property 2: Mutating the message causes verification to fail
+            if !msg.is_empty() {
+                let mut mutated_msg = msg.clone();
+                mutated_msg[0] ^= 0xff;
+                prop_assert!(!verify_signature(&pubkey, &sig_bytes, &mutated_msg));
+                prop_assert!(keypair.verify(&sig, &mutated_msg).is_err());
+            }
+
+            // Property 3: Mutating the signature causes verification to fail
+            let mut bad_sig_bytes = sig_bytes;
+            bad_sig_bytes[0] ^= 0xff;
+            prop_assert!(!verify_signature(&pubkey, &bad_sig_bytes, &msg));
+
+            // Property 4: Verification fails with a completely different public key
+            let mut bad_seed = seed;
+            bad_seed[0] ^= 0xff;
+            let other_keypair = OperatorKeypair::from_seed(&bad_seed);
+            let other_pubkey = other_keypair.verifying_key_bytes();
+            if pubkey != other_pubkey {
+                prop_assert!(!verify_signature(&other_pubkey, &sig_bytes, &msg));
+            }
+        }
+    }
 }

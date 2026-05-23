@@ -265,8 +265,19 @@ export class ChronoNodeClient {
     return this.request('/health');
   }
 
-  async listChains(): Promise<ChainInfo[]> {
-    return this.request('/v1/chains');
+  async listChains(page?: number, perPage?: number): Promise<ChainInfo[]> {
+    let path = '/v1/chains';
+    const params: string[] = [];
+    if (page !== undefined) {
+      params.push(`page=${page}`);
+    }
+    if (perPage !== undefined) {
+      params.push(`per_page=${perPage}`);
+    }
+    if (params.length > 0) {
+      path += '?' + params.join('&');
+    }
+    return this.request(path);
   }
 
   async getBlockByHeight(chainId: string, height: number): Promise<BlockResponse> {

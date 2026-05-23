@@ -70,7 +70,7 @@ async fn setup_test_state() -> (Arc<ArchivePipeline>, TempDir) {
 
     for h in 0..5 {
         let block = make_test_block(h);
-        let bytes = chrononode_cli::archive::serializer::serialize_block(&block).unwrap();
+        let bytes = chrononode_cli::archive::serializer::serialize_block(&block, false).unwrap();
         let pointer = pipeline.storage.put(&bytes).await.unwrap();
         pipeline.storage.pin(&pointer).await.unwrap();
         let pointer_str = pointer.to_string();
@@ -583,4 +583,68 @@ async fn test_api_pagination() {
     let body = body_to_string(response.into_body()).await;
     let txs4: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
     assert_eq!(txs4.len(), 0);
+}
+
+#[tokio::test]
+async fn test_api_list_chains_pagination() {
+    let (pipeline, _dir) = setup_test_state().await;
+    // Register another chain so we have two chains to paginate
+    pipeline.index
+        .register_chain("mock2", "Mock Chain 2", "mock", "EventLedger")
+        .await
+        .unwrap();
+
+    let state = Arc::new(ApiState {
+        pipeline: Some(pipeline),
+        metrics: ApiMetrics::new(),
+        api_key: None,
+        rate_limiter: RateLimiter::new(1000),
+    });
+    let app = build_router(state);
+
+    // Page 1, per_page 1 -> returns 1 chain
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/chains?page=1&per_page=1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_to_string(response.into_body()).await;
+    let chains1: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
+    assert_eq!(chains1.len(), 1);
+
+    // Page 2, per_page 1 -> returns the second chain
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/chains?page=2&per_page=1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_to_string(response.into_body()).await;
+    let chains2: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
+    assert_eq!(chains2.len(), 1);
+    assert_ne!(chains1[0]["chain_id"], chains2[0]["chain_id"]);
+
+    // Page 3, per_page 1 -> returns empty
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/chains?page=3&per_page=1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_to_string(response.into_body()).await;
+    let chains3: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
+    assert_eq!(chains3.len(), 0);
 }

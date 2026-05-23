@@ -93,8 +93,15 @@ impl ChronoNodeClient {
         Ok(res.json().await?)
     }
 
-    pub async fn list_chains(&self) -> Result<Vec<ChainInfo>, SdkError> {
-        let url = format!("{}/v1/chains", self.base_url);
+    pub async fn list_chains(&self, page: Option<u64>, per_page: Option<u64>) -> Result<Vec<ChainInfo>, SdkError> {
+        let mut url = format!("{}/v1/chains?", self.base_url);
+        if let Some(p) = page {
+            url.push_str(&format!("page={}&", p));
+        }
+        if let Some(pp) = per_page {
+            url.push_str(&format!("per_page={}&", pp));
+        }
+        let url = url.trim_end_matches('&').trim_end_matches('?').to_string();
         let req = self.client.get(&url);
         let res = self.apply_headers(req).send().await?;
         let res = self.check_status(res).await?;

@@ -49,6 +49,14 @@ impl StorageBackend for LocalFsBackend {
         Ok(())
     }
 
+    async fn delete(&self, pointer: &StoragePointer) -> Result<()> {
+        let path = self.object_path(pointer);
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        Ok(())
+    }
+
     async fn health_check(&self) -> Result<StorageHealth> {
         let ok = self.base_path.exists();
         Ok(StorageHealth {
