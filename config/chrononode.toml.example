@@ -77,7 +77,7 @@ default_threshold_blocks = 26280
 
 # Per-chain overrides
 [dormancy.chain_thresholds]
-# bitcoin = 26280
+# bitcoin-light = 26280
 # dogecoin = 2103840  # ~4 years (1-min blocks)
 
 # --- Attestation Submission (Phase 4) ---

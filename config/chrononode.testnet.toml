@@ -58,7 +58,7 @@ api_url = "https://api.blockcypher.com"
 default_threshold_blocks = 26280
 
 [dormancy.chain_thresholds]
-bitcoin = 26280
+bitcoin-light = 26280
 dogecoin = 2103840   # ~4 years at ~1-min blocks
 
 [attestation]
