@@ -140,6 +140,19 @@ impl DogeAdapter {
             || status == reqwest::StatusCode::REQUEST_TIMEOUT
     }
 
+    fn redact_url(url: &str) -> String {
+        let mut out = url.to_string();
+        if let Some(token_pos) = out.find("token=") {
+            let value_start = token_pos + "token=".len();
+            let value_end = out[value_start..]
+                .find('&')
+                .map(|i| value_start + i)
+                .unwrap_or(out.len());
+            out.replace_range(value_start..value_end, "[redacted]");
+        }
+        out
+    }
+
     fn build_url(&self, base_url: &str, path: &str) -> String {
         let mut url = format!("{}{}", base_url, path);
         if let Some(token) = &self.api_token {
@@ -156,6 +169,7 @@ impl DogeAdapter {
 
     async fn get_single(&self, url: &str) -> Result<serde_json::Value> {
         let url = url.to_string();
+        let display_url = Self::redact_url(&url);
         let client = self.client.clone();
 
         retry_with_backoff_predicate(
@@ -163,24 +177,24 @@ impl DogeAdapter {
             1000,
             || {
                 let url = url.clone();
+                let display_url = display_url.clone();
                 let client = client.clone();
                 async move {
-                    let resp =
-                        client.get(&url).send().await.map_err(|e| {
-                            FetchError::Retryable(format!("GET {} failed: {}", url, e))
-                        })?;
+                    let resp = client.get(&url).send().await.map_err(|e| {
+                        FetchError::Retryable(format!("GET {} failed: {}", display_url, e))
+                    })?;
 
                     if Self::is_retryable_status(resp.status()) {
                         return Err(FetchError::Retryable(format!(
                             "GET {} returned {} (retryable)",
-                            url,
+                            display_url,
                             resp.status()
                         )));
                     }
                     if !resp.status().is_success() {
                         return Err(FetchError::Fatal(format!(
                             "GET {} returned {}",
-                            url,
+                            display_url,
                             resp.status()
                         )));
                     }
@@ -463,5 +477,13 @@ mod tests {
         let tx: BlockCypherTx = serde_json::from_value(json).unwrap();
         assert_eq!(tx.inputs[0].prev_hash.as_deref(), Some("deadbeef"));
         assert_eq!(tx.inputs[0].output_index, Some(0));
+    }
+
+    #[test]
+    fn test_redact_url_hides_token_value() {
+        let redacted =
+            DogeAdapter::redact_url("https://api.blockcypher.com/v1/doge/main?token=abc123");
+        assert!(redacted.contains("token=[redacted]"));
+        assert!(!redacted.contains("abc123"));
     }
 }
