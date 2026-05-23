@@ -246,6 +246,16 @@ impl DogeAdapter {
                 .unwrap_or(out.len());
             out.replace_range(value_start..value_end, "[redacted]");
         }
+        if let Some(prefix_pos) = out.find("go.getblock.io/") {
+            let segment_start = prefix_pos + "go.getblock.io/".len();
+            let segment_end = out[segment_start..]
+                .find('/')
+                .map(|i| segment_start + i)
+                .unwrap_or(out.len());
+            if segment_end > segment_start {
+                out.replace_range(segment_start..segment_end, "[redacted]");
+            }
+        }
         out
     }
 
@@ -850,5 +860,12 @@ mod tests {
             DogeAdapter::redact_url("https://api.blockcypher.com/v1/doge/main?token=abc123");
         assert!(redacted.contains("token=[redacted]"));
         assert!(!redacted.contains("abc123"));
+    }
+
+    #[test]
+    fn test_redact_url_hides_getblock_path_token() {
+        let redacted = DogeAdapter::redact_url("https://go.getblock.io/secret123");
+        assert!(redacted.contains("go.getblock.io/[redacted]"));
+        assert!(!redacted.contains("secret123"));
     }
 }
