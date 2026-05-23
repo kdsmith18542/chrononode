@@ -157,13 +157,13 @@ cargo test --all-features
 
 ## Remaining Work (Current)
 
-Execution order:
-- L3. Rate limiter improvements in API (`Arc<Mutex<Instant>>` -> atomic/token-bucket approach + tests)
-- L4. Pagination for list endpoints (`/v1/chains`, sender tx list, events list)
-- L5. Adapter config hot reload polish (`notify`-based reload reliability and coverage)
+Open work:
 - L6. Optional MongoDB/Scylla index backends (feature-gated)
-- L7. Grafana dashboard JSON in `deploy/grafana/`
 
 Recently completed:
 - L1. Property-based tests (`proptest`) for Merkle/proof/signing invariants
 - L2. Criterion benchmark harness for Merkle root/proof generation/proof verification
+- L3. API rate limiter hardened with atomic token-bucket state + deterministic unit tests
+- L4. Pagination for list endpoints (`page`/`per_page`) with API coverage
+- L5. Adapter config hot reload with test coverage
+- L7. Grafana dashboard JSON in `deploy/grafana/chrononode-dashboard.json`

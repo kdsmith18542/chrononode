@@ -34,8 +34,12 @@ pub struct RateLimiter {
 }
 
 impl RateLimiter {
+    const TOKENS_MASK: u64 = 0xFF_FFFF; // 24 bits
+    const TIME_MASK: u64 = 0xFF_FFFF_FFFF; // 40 bits (milliseconds since baseline)
+
     pub fn new(max_per_second: u64) -> Self {
-        let max_per_second = max_per_second.clamp(1, 16_777_215);
+        // Keep within the 24-bit token field.
+        let max_per_second = max_per_second.clamp(1, Self::TOKENS_MASK);
         Self {
             max_per_second,
             baseline: Instant::now(),
@@ -44,26 +48,33 @@ impl RateLimiter {
     }
 
     pub fn allow(&self) -> bool {
-        let now_ms = self.baseline.elapsed().as_millis() as u64 & 0xFF_FFFF_FFFF; // 40 bits
-        let mut current = self.state.load(std::sync::atomic::Ordering::Relaxed);
+        let now_ms = self.baseline.elapsed().as_millis() as u64 & Self::TIME_MASK;
+        self.allow_at_ms(now_ms)
+    }
+
+    fn allow_at_ms(&self, now_ms: u64) -> bool {
+        let mut current = self.state.load(std::sync::atomic::Ordering::Acquire);
         loop {
             let last_refill_ms = current >> 24;
-            let current_tokens = current & 0xFF_FFFF;
+            let current_tokens = current & Self::TOKENS_MASK;
 
             let elapsed_ms = if now_ms >= last_refill_ms {
                 now_ms - last_refill_ms
             } else {
-                (0x100_0000_0000 - last_refill_ms) + now_ms
+                ((Self::TIME_MASK + 1) - last_refill_ms) + now_ms
             };
 
             let refilled_tokens = (self.max_per_second * elapsed_ms) / 1000;
-            let new_tokens = current_tokens + refilled_tokens;
+            let new_tokens = current_tokens.saturating_add(refilled_tokens);
 
             let (next_tokens, next_refill_ms) = if new_tokens >= self.max_per_second {
-                (self.max_per_second, now_ms)
+                (self.max_per_second, now_ms & Self::TIME_MASK)
             } else {
                 let time_consumed_ms = (refilled_tokens * 1000) / self.max_per_second;
-                (new_tokens, last_refill_ms + time_consumed_ms)
+                (
+                    new_tokens,
+                    last_refill_ms.wrapping_add(time_consumed_ms) & Self::TIME_MASK,
+                )
             };
 
             if next_tokens == 0 {
@@ -76,8 +87,8 @@ impl RateLimiter {
             match self.state.compare_exchange_weak(
                 current,
                 next,
-                std::sync::atomic::Ordering::Relaxed,
-                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
             ) {
                 Ok(_) => return true,
                 Err(actual) => current = actual,
@@ -958,4 +969,45 @@ pub fn build_router(state: Arc<ApiState>) -> Router {
     }
 
     router
+}
+
+#[cfg(test)]
+mod rate_limiter_tests {
+    use super::RateLimiter;
+
+    #[test]
+    fn deterministic_refill_rate() {
+        let limiter = RateLimiter::new(4);
+
+        // Drain initial burst capacity at t=0.
+        assert!(limiter.allow_at_ms(0));
+        assert!(limiter.allow_at_ms(0));
+        assert!(limiter.allow_at_ms(0));
+        assert!(limiter.allow_at_ms(0));
+        assert!(!limiter.allow_at_ms(0));
+
+        // 4 tokens/sec => 1 token every 250ms.
+        assert!(limiter.allow_at_ms(250));
+        assert!(!limiter.allow_at_ms(250));
+
+        assert!(limiter.allow_at_ms(500));
+        assert!(!limiter.allow_at_ms(500));
+    }
+
+    #[test]
+    fn deterministic_burst_cap_after_idle() {
+        let limiter = RateLimiter::new(3);
+
+        // Consume all tokens.
+        assert!(limiter.allow_at_ms(0));
+        assert!(limiter.allow_at_ms(0));
+        assert!(limiter.allow_at_ms(0));
+        assert!(!limiter.allow_at_ms(0));
+
+        // Long idle should refill to max, not beyond max.
+        assert!(limiter.allow_at_ms(10_000));
+        assert!(limiter.allow_at_ms(10_000));
+        assert!(limiter.allow_at_ms(10_000));
+        assert!(!limiter.allow_at_ms(10_000));
+    }
 }
