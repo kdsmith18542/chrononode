@@ -200,22 +200,29 @@ fn configured_backend_kind() -> anyhow::Result<BackendKind> {
 }
 
 fn start_config_watcher(chain: &str, pipeline: Arc<ArchivePipeline>) {
-    use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+    use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher, PollWatcher};
     use std::time::Duration;
     use tokio::sync::mpsc;
 
     let chain = chain.to_string();
     let config_path = dirs_data_dir().join("config.toml");
+    let config_path = std::fs::canonicalize(&config_path).unwrap_or(config_path);
     let (tx, mut rx) = mpsc::channel(10);
 
     let config_path_clone = config_path.clone();
+    let mut use_poll = false;
+
     let mut watcher: RecommendedWatcher = match Watcher::new(
-        move |res: Result<Event, notify::Error>| {
-            if let Ok(event) = res {
-                if (event.kind.is_modify() || event.kind.is_create())
-                    && event.paths.iter().any(|p| p == &config_path_clone)
-                {
-                    let _ = tx.blocking_send(());
+        {
+            let tx = tx.clone();
+            let config_path_clone = config_path_clone.clone();
+            move |res: Result<Event, notify::Error>| {
+                if let Ok(event) = res {
+                    if (event.kind.is_modify() || event.kind.is_create())
+                        && event.paths.iter().any(|p| p == &config_path_clone)
+                    {
+                        let _ = tx.blocking_send(());
+                    }
                 }
             }
         },
@@ -223,48 +230,99 @@ fn start_config_watcher(chain: &str, pipeline: Arc<ArchivePipeline>) {
     ) {
         Ok(w) => w,
         Err(e) => {
-            tracing::error!("Failed to create config watcher: {}", e);
+            tracing::error!("Failed to create RecommendedWatcher: {}", e);
             return;
         }
     };
 
-    let watch_target = if config_path.exists() {
-        config_path.clone()
+    let watch_target = if let Some(parent) = config_path.parent() {
+        parent.to_path_buf()
     } else {
-        if let Some(parent) = config_path.parent() {
-            parent.to_path_buf()
-        } else {
-            config_path.clone()
-        }
+        config_path.clone()
     };
 
     if let Err(e) = watcher.watch(&watch_target, RecursiveMode::NonRecursive) {
-        tracing::warn!("Failed to watch path {:?}: {}", watch_target, e);
+        tracing::warn!("Failed to watch path {:?} with RecommendedWatcher: {}. Falling back to PollWatcher.", watch_target, e);
+        use_poll = true;
     }
 
-    tokio::spawn(async move {
-        let _watcher = watcher;
-        while let Some(()) = rx.recv().await {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            while rx.try_recv().is_ok() {}
-
-            tracing::info!(
-                "Config change detected, reloading adapter for chain {}...",
-                chain
-            );
-            let adapter_config = load_adapter_config(&chain);
-            match registry::create(&chain, adapter_config) {
-                Ok(new_adapter) => {
-                    let mut lock = pipeline.adapter.write().await;
-                    *lock = new_adapter;
-                    tracing::info!("Successfully reloaded adapter config for chain {}", chain);
+    if use_poll {
+        let mut poll_watcher = match PollWatcher::new(
+            {
+                let tx = tx.clone();
+                let config_path_clone = config_path_clone.clone();
+                move |res: Result<Event, notify::Error>| {
+                    if let Ok(event) = res {
+                        if (event.kind.is_modify() || event.kind.is_create())
+                            && event.paths.iter().any(|p| p == &config_path_clone)
+                        {
+                            let _ = tx.blocking_send(());
+                        }
+                    }
                 }
-                Err(e) => {
-                    tracing::error!("Failed to recreate adapter for chain {}: {}", chain, e);
+            },
+            notify::Config::default().with_poll_interval(Duration::from_millis(200)),
+        ) {
+            Ok(w) => w,
+            Err(pe) => {
+                tracing::error!("Failed to create PollWatcher: {}", pe);
+                return;
+            }
+        };
+
+        if let Err(pe) = poll_watcher.watch(&watch_target, RecursiveMode::NonRecursive) {
+            tracing::error!("Failed to watch path {:?} with PollWatcher: {}", watch_target, pe);
+            return;
+        }
+
+        tokio::spawn(async move {
+            let _watcher = poll_watcher;
+            while let Some(()) = rx.recv().await {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                while rx.try_recv().is_ok() {}
+
+                tracing::info!(
+                    "Config change detected via PollWatcher, reloading adapter for chain {}...",
+                    chain
+                );
+                let adapter_config = load_adapter_config(&chain);
+                match registry::create(&chain, adapter_config) {
+                    Ok(new_adapter) => {
+                        let mut lock = pipeline.adapter.write().await;
+                        *lock = new_adapter;
+                        tracing::info!("Successfully reloaded adapter config for chain {}", chain);
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to recreate adapter for chain {}: {}", chain, e);
+                    }
                 }
             }
-        }
-    });
+        });
+    } else {
+        tokio::spawn(async move {
+            let _watcher = watcher;
+            while let Some(()) = rx.recv().await {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                while rx.try_recv().is_ok() {}
+
+                tracing::info!(
+                    "Config change detected via RecommendedWatcher, reloading adapter for chain {}...",
+                    chain
+                );
+                let adapter_config = load_adapter_config(&chain);
+                match registry::create(&chain, adapter_config) {
+                    Ok(new_adapter) => {
+                        let mut lock = pipeline.adapter.write().await;
+                        *lock = new_adapter;
+                        tracing::info!("Successfully reloaded adapter config for chain {}", chain);
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to recreate adapter for chain {}: {}", chain, e);
+                    }
+                }
+            }
+        });
+    }
 }
 
 fn resolve_adapter_name(chain: &str) -> String {
@@ -796,6 +854,7 @@ async fn cmd_dormancy_scan(chain: &str, current_height: Option<u64>) -> anyhow::
                 threshold_blocks: threshold,
                 signer_pubkey: None,
                 signature: None,
+                evm_wallet: None,
             };
             match submitter
                 .submit_dormancy_proof(&proof, index.as_ref())
@@ -809,6 +868,8 @@ async fn cmd_dormancy_scan(chain: &str, current_height: Option<u64>) -> anyhow::
                     tracing::warn!("Failed to submit attestation: {}", e);
                 }
             }
+            // Pace submissions to stay under BaaLS rate limit during bulk scans
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         }
     }
 
@@ -1210,10 +1271,11 @@ mod tests {
 
         // 2. Set up temp data directory
         let temp = tempfile::tempdir().unwrap();
-        std::env::set_var("CHRONONODE_DATA_DIR", temp.path());
+        let canonical_temp = std::fs::canonicalize(temp.path()).unwrap();
+        std::env::set_var("CHRONONODE_DATA_DIR", &canonical_temp);
 
         // 3. Create initial config.toml
-        let config_path = temp.path().join("config.toml");
+        let config_path = canonical_temp.join("config.toml");
         let initial_toml = r#"
 [adapters.reload_test]
 display_name = "Initial Version"
@@ -1225,9 +1287,9 @@ display_name = "Initial Version"
         let adapter = registry::create("reload_test", initial_config).unwrap();
         let storage = create_backend(
             BackendKind::LocalFs,
-            &BackendConfig::from_env(temp.path().to_str().unwrap()),
+            &BackendConfig::from_env(canonical_temp.to_str().unwrap()),
         );
-        let db_path = temp.path().join("index.db");
+        let db_path = canonical_temp.join("index.db");
         let index = open_index(IndexKind::Sqlite, &db_path, "").await.unwrap();
 
         let pipeline = Arc::new(ArchivePipeline::new(adapter, storage, index));
@@ -1300,10 +1362,10 @@ display_name = "Reloaded Version"
 
         let mut mock_server = mockito::Server::new_async().await;
         let mock = mock_server
-            .mock("POST", "/api/v1/tx/send")
+            .mock("POST", "/api/v1/oracle/attest")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"tx_hash":"integration_tx_abc","status":"ok"}"#)
+            .with_body(r#"{"status":"ok","attestation":{"baals_signature":"integration_tx_abc"}}"#)
             .expect_at_least(1)
             .create_async()
             .await;
@@ -1360,6 +1422,7 @@ display_name = "Reloaded Version"
                             threshold_blocks: threshold,
                             signer_pubkey: None,
                             signature: None,
+                            evm_wallet: None,
                         };
                         let result = submitter
                             .submit_dormancy_proof(&proof, index.as_ref())

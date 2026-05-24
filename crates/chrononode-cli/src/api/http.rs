@@ -653,9 +653,15 @@ pub struct DormancyProofResponse {
     pub proof: chrononode_core::DormancyProof,
 }
 
+#[derive(Deserialize, ToSchema)]
+pub struct DormancyProofQuery {
+    pub evm_wallet: Option<String>,
+}
+
 async fn get_dormancy_proof(
     State(state): State<Arc<ApiState>>,
     Path((chain_id, address)): Path<(String, String)>,
+    Query(query): Query<DormancyProofQuery>,
 ) -> ApiResult<DormancyProofResponse> {
     state.metrics.increment_requests();
     let pipeline = state.pipeline.as_ref().ok_or_else(|| {
@@ -700,6 +706,7 @@ async fn get_dormancy_proof(
         threshold_blocks: dormant.1,
         signer_pubkey: None,
         signature: None,
+        evm_wallet: query.evm_wallet,
     };
     proof.sign(&keypair);
 
@@ -710,6 +717,7 @@ async fn get_dormancy_proof(
 pub struct AttestationSubmitRequest {
     pub chain_id: String,
     pub address: String,
+    pub evm_wallet: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -772,6 +780,7 @@ async fn submit_attestation(
         threshold_blocks: dormant.1,
         signer_pubkey: None,
         signature: None,
+        evm_wallet: req.evm_wallet,
     };
 
     match submitter

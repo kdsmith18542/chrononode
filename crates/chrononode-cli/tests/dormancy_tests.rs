@@ -108,6 +108,7 @@ async fn test_dormancy_proof_sign_and_verify() {
         threshold_blocks: 26280,
         signer_pubkey: None,
         signature: None,
+        evm_wallet: None,
     };
 
     proof.sign(&keypair);
@@ -136,6 +137,7 @@ async fn test_dormancy_proof_no_keypair_fails_verify() {
         threshold_blocks: 26280,
         signer_pubkey: None,
         signature: None,
+        evm_wallet: None,
     };
     assert!(!proof.verify());
 }

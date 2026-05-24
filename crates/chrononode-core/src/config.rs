@@ -91,6 +91,9 @@ pub struct AttestationConfig {
     pub baals_api_url: Option<String>,
     /// Path to the BaaLS account signing key file (32 bytes raw ed25519 seed)
     pub baals_key_path: Option<String>,
+    /// Skip TLS certificate verification for BaaLS connections (for self-signed certs on localhost)
+    #[serde(default)]
+    pub baals_tls_skip_verify: bool,
     /// Auto-submit attestations when new dormant addresses are detected
     #[serde(default = "default_auto_submit")]
     pub auto_submit: bool,
@@ -120,6 +123,7 @@ impl Default for AttestationConfig {
         Self {
             baals_api_url: None,
             baals_key_path: None,
+            baals_tls_skip_verify: false,
             auto_submit: true,
             evm_rpc_url: None,
             evm_contract_address: None,
@@ -130,10 +134,16 @@ impl Default for AttestationConfig {
     }
 }
 
+fn default_checkpoint_size() -> u64 { 1000 }
+fn default_hash_algorithm() -> String { "sha256".to_string() }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoreConfig {
+    #[serde(default = "default_checkpoint_size")]
     pub checkpoint_size: u64,
+    #[serde(default = "default_hash_algorithm")]
     pub hash_algorithm: String,
+    #[serde(default)]
     pub repair: RepairConfig,
     #[serde(default)]
     pub pruning: PruningConfig,

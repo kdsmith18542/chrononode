@@ -17,6 +17,10 @@ pub enum IndexKind {
     Sqlite,
     #[cfg(feature = "postgres")]
     Postgres,
+    #[cfg(feature = "mongodb")]
+    MongoDb,
+    #[cfg(feature = "scylla")]
+    Scylla,
 }
 
 impl IndexKind {
@@ -25,14 +29,29 @@ impl IndexKind {
             "sqlite" => Some(Self::Sqlite),
             #[cfg(feature = "postgres")]
             "postgres" | "pg" => Some(Self::Postgres),
+            #[cfg(feature = "mongodb")]
+            "mongodb" | "mongo" => Some(Self::MongoDb),
+            #[cfg(feature = "scylla")]
+            "scylla" | "cassandra" => Some(Self::Scylla),
             _ => None,
         }
     }
 }
 
 pub fn configured_index_kind() -> IndexKind {
-    let value = std::env::var("CHRONONODE_INDEX_BACKEND").unwrap_or_else(|_| "sqlite".to_string());
-    IndexKind::from_name(&value).unwrap_or(IndexKind::Sqlite)
+    match std::env::var("CHRONONODE_INDEX_BACKEND") {
+        Ok(value) => match IndexKind::from_name(&value) {
+            Some(kind) => kind,
+            None => {
+                eprintln!(
+                    "Unsupported CHRONONODE_INDEX_BACKEND='{}'; falling back to sqlite",
+                    value
+                );
+                IndexKind::Sqlite
+            }
+        },
+        Err(_) => IndexKind::Sqlite,
+    }
 }
 
 #[async_trait]
@@ -251,6 +270,14 @@ pub async fn open_index(
             let index = PostgresIndex::open(postgres_url).await?;
             Ok(Box::new(index))
         }
+        #[cfg(feature = "mongodb")]
+        IndexKind::MongoDb => Err(chrononode_core::CoreError::Internal(
+            "mongodb index backend is not implemented yet".to_string(),
+        )),
+        #[cfg(feature = "scylla")]
+        IndexKind::Scylla => Err(chrononode_core::CoreError::Internal(
+            "scylla index backend is not implemented yet".to_string(),
+        )),
     }
 }
 

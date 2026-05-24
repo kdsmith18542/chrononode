@@ -95,9 +95,9 @@ async fn test_baals_submitter_submit_with_mock() {
     let index = setup_index(&tmp).await;
 
     let mock = server
-        .mock("POST", "/api/v1/tx/send")
+        .mock("POST", "/api/v1/oracle/attest")
         .with_status(200)
-        .with_body(r#"{"tx_hash": "0xdeadbeef", "hash": "0xdeadbeef"}"#)
+        .with_body(r#"{"status": "ok", "attestation": {"baals_signature": "0xdeadbeef"}}"#)
         .create();
 
     let proof = DormancyProof {
@@ -109,6 +109,7 @@ async fn test_baals_submitter_submit_with_mock() {
         threshold_blocks: 26280,
         signer_pubkey: None,
         signature: None,
+        evm_wallet: None,
     };
 
     let result = submitter
@@ -151,6 +152,7 @@ async fn test_baals_submitter_idempotent() {
         threshold_blocks: 26280,
         signer_pubkey: None,
         signature: None,
+        evm_wallet: None,
     };
 
     let result = submitter
@@ -173,7 +175,7 @@ async fn test_baals_submitter_retry_on_500() {
     let index = setup_index(&tmp).await;
 
     let _mock = server
-        .mock("POST", "/api/v1/tx/send")
+        .mock("POST", "/api/v1/oracle/attest")
         .with_status(500)
         .with_body("Server Error")
         .create();
@@ -187,6 +189,7 @@ async fn test_baals_submitter_retry_on_500() {
         threshold_blocks: 26280,
         signer_pubkey: None,
         signature: None,
+        evm_wallet: None,
     };
 
     let result = submitter.submit_dormancy_proof(&proof, &index).await;

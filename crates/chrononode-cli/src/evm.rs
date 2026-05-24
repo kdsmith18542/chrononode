@@ -404,6 +404,7 @@ mod tests {
             threshold_blocks: 26_280,
             signer_pubkey: Some("ab".repeat(32)),
             signature: Some("cd".repeat(64)),
+            evm_wallet: None,
         }
     }
 

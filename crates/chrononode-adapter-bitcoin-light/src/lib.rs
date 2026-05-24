@@ -140,7 +140,7 @@ impl BitcoinLightAdapter {
 
     pub fn new_with_fallbacks(api_urls: Vec<String>) -> Self {
         Self {
-            chain_id: "bitcoin-light".to_string(),
+            chain_id: "bitcoin".to_string(),
             client: reqwest::Client::builder()
                 .user_agent("chrononode/0.1")
                 .build()
@@ -163,7 +163,7 @@ impl BitcoinLightAdapter {
         rpc_api_key_header: Option<String>,
     ) -> Self {
         Self {
-            chain_id: "bitcoin-light".to_string(),
+            chain_id: "bitcoin".to_string(),
             client: reqwest::Client::builder()
                 .user_agent("chrononode/0.1")
                 .build()

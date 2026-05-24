@@ -69,6 +69,8 @@ utoipa-swagger-ui = { version = "9", features = ["axum"] }
 [features]
 default = []
 postgres = ["sqlx/postgres"]
+mongodb = []
+scylla = []
 
 [build-dependencies]
 prost-build = "0.14"

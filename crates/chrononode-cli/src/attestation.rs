@@ -34,11 +34,12 @@ impl BaalsSubmitter {
             Some(ed25519_dalek::SigningKey::from_bytes(&seed))
         });
 
+        let mut builder = reqwest::Client::builder().user_agent("chrononode/0.1");
+        if config.attestation.baals_tls_skip_verify {
+            builder = builder.danger_accept_invalid_certs(true);
+        }
         Self {
-            client: reqwest::Client::builder()
-                .user_agent("chrononode/0.1")
-                .build()
-                .unwrap_or_default(),
+            client: builder.build().unwrap_or_default(),
             api_url: api_url.trim_end_matches('/').to_string(),
             signing_key,
         }
@@ -70,49 +71,21 @@ impl BaalsSubmitter {
             return Ok(None);
         }
 
-        let key = self.signing_key.as_ref().ok_or_else(|| {
-            chrononode_core::CoreError::Internal("BaaLS signing key not configured".to_string())
-        })?;
+        let mut signed_proof = proof.clone();
+        if signed_proof.signature.is_none() {
+            let key = self.signing_key.as_ref().ok_or_else(|| {
+                chrononode_core::CoreError::Internal("BaaLS signing key not configured".to_string())
+            })?;
+            let keypair = chrononode_core::signing::OperatorKeypair::from_seed(&key.to_bytes());
+            signed_proof.sign(&keypair);
+        }
 
-        let proof_json = serde_json::to_value(proof)
-            .map_err(|e| chrononode_core::CoreError::Serialization(e.to_string()))?;
-
-        let verifying_key = key.verifying_key();
-        let sender_hex = hex::encode(verifying_key.to_bytes());
-
-        let tx = BaalsTransactionJson {
-            tx_type: "data".to_string(),
-            sender: sender_hex,
-            recipient: "0000000000000000000000000000000000000000000000000000000000000000"
-                .to_string(),
-            payload: serde_json::json!({
-                "type": "data",
-                "data": serde_json::to_string(&proof_json).unwrap_or_default()
-            }),
-            nonce: 0,
-            gas_limit: 100_000,
-            gas_price: 1,
-        };
-
-        let tx_json = serde_json::to_value(&tx)
-            .map_err(|e| chrononode_core::CoreError::Serialization(e.to_string()))?;
-
-        let tx_bytes = serde_json::to_vec(&tx)
-            .map_err(|e| chrononode_core::CoreError::Serialization(e.to_string()))?;
-        let signature = key.sign(&tx_bytes);
-        let sig_hex = hex::encode(signature.to_bytes());
-
-        let body = serde_json::json!({
-            "transaction": tx_json,
-            "signature": sig_hex,
-        });
-
-        let url = format!("{}/api/v1/tx/send", self.api_url);
+        let url = format!("{}/api/v1/oracle/attest", self.api_url);
 
         let resp = self
             .client
             .post(&url)
-            .json(&body)
+            .json(&signed_proof)
             .send()
             .await
             .map_err(|e| {
@@ -135,30 +108,36 @@ impl BaalsSubmitter {
             chrononode_core::CoreError::Adapter(format!("BaaLS response parse failed: {}", e))
         })?;
 
-        let tx_hash = response
-            .get("tx_hash")
-            .or_else(|| response.get("hash"))
+        let attestation = response.get("attestation").ok_or_else(|| {
+            chrononode_core::CoreError::Adapter("BaaLS response missing attestation field".to_string())
+        })?;
+
+        let baals_sig = attestation
+            .get("baals_signature")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            .ok_or_else(|| {
+                chrononode_core::CoreError::Adapter("BaaLS attestation missing baals_signature".to_string())
+            })?
+            .to_string();
 
         index
             .record_attestation(
                 chain_id,
                 address,
                 dormant_since,
-                tx_hash.as_deref(),
+                Some(&baals_sig),
                 "submitted",
             )
             .await?;
 
         tracing::info!(
-            "Submitted dormancy attestation for {} on {} (tx: {:?})",
+            "Submitted dormancy attestation for {} on {} (baals_sig: {})",
             address,
             chain_id,
-            tx_hash
+            baals_sig
         );
 
-        Ok(tx_hash)
+        Ok(Some(baals_sig))
     }
 }
 
@@ -200,6 +179,7 @@ mod tests {
             threshold_blocks: 26_280,
             signer_pubkey: None,
             signature: None,
+            evm_wallet: None,
         }
     }
 
@@ -281,10 +261,10 @@ mod tests {
 
         let mut mock_server = mockito::Server::new_async().await;
         let mock = mock_server
-            .mock("POST", "/api/v1/tx/send")
+            .mock("POST", "/api/v1/oracle/attest")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"tx_hash":"abc123def456","status":"ok"}"#)
+            .with_body(r#"{"status":"ok","attestation":{"baals_signature":"abc123def456"}}"#)
             .create_async()
             .await;
 
@@ -322,7 +302,7 @@ mod tests {
 
         let mut mock_server = mockito::Server::new_async().await;
         let mock = mock_server
-            .mock("POST", "/api/v1/tx/send")
+            .mock("POST", "/api/v1/oracle/attest")
             .with_status(500)
             .with_body("internal error")
             .create_async()

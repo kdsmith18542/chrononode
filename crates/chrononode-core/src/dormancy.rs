@@ -18,19 +18,22 @@ pub struct DormancyProof {
     pub threshold_blocks: u64,
     pub signer_pubkey: Option<String>,
     pub signature: Option<String>,
+    pub evm_wallet: Option<String>,
 }
 
 impl DormancyProof {
     pub fn message_to_sign(&self) -> Vec<u8> {
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(b"chrononode:dormancy:v1");
-        hasher.update(self.chain_id.as_bytes());
-        hasher.update(self.address.as_bytes());
-        hasher.update(self.dormant_since_block.to_be_bytes());
-        hasher.update(self.current_block.to_be_bytes());
-        hasher.update(self.threshold_blocks.to_be_bytes());
-        hasher.finalize().to_vec()
+        let mut msg = Vec::new();
+        msg.extend_from_slice(self.version.as_bytes());
+        msg.push(b':');
+        msg.extend_from_slice(self.chain_id.as_bytes());
+        msg.push(b':');
+        msg.extend_from_slice(self.address.as_bytes());
+        msg.push(b':');
+        msg.extend_from_slice(&self.dormant_since_block.to_be_bytes());
+        msg.extend_from_slice(&self.current_block.to_be_bytes());
+        msg.extend_from_slice(&self.threshold_blocks.to_be_bytes());
+        msg
     }
 
     pub fn sign(&mut self, keypair: &crate::signing::OperatorKeypair) {
