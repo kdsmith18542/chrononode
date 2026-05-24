@@ -977,6 +977,17 @@ pub fn build_router(state: Arc<ApiState>) -> Router {
         router = router.layer(middleware::from_fn_with_state(state, auth_middleware));
     }
 
+    let cors = tower_http::cors::CorsLayer::new()
+        .allow_origin(tower_http::cors::Any)
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers(tower_http::cors::Any);
+
+    router = router.layer(cors);
+
     router
 }
 

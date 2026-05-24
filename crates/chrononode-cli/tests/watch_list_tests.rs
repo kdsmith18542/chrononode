@@ -18,6 +18,7 @@ async fn test_watch_list_add_and_list() {
             "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
             0,
             Some("genesis"),
+            None,
         )
         .await
         .unwrap();
@@ -27,6 +28,7 @@ async fn test_watch_list_add_and_list() {
             "bitcoin",
             "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
             500000,
+            None,
             None,
         )
         .await
@@ -59,6 +61,7 @@ async fn test_watch_list_remove() {
             "0xdead000000000000000000000000000000000000",
             0,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -79,6 +82,42 @@ async fn test_watch_list_remove() {
         .await
         .unwrap();
     assert!(!watched);
+}
+
+#[tokio::test]
+async fn test_watch_list_evm_wallet() {
+    let tmp = TempDir::new().unwrap();
+    let index = setup_index(&tmp).await;
+
+    index
+        .add_watched_address(
+            "bitcoin",
+            "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+            0,
+            Some("genesis"),
+            Some("0x42060A5Fc138ee019BC3F777B51c6490A1b881f0"),
+        )
+        .await
+        .unwrap();
+
+    let list = index.list_watched_addresses("bitcoin").await.unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].3.as_deref(), Some("0x42060A5Fc138ee019BC3F777B51c6490A1b881f0"));
+
+    // Re-adding without evm_wallet should not overwrite existing one
+    index
+        .add_watched_address(
+            "bitcoin",
+            "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+            0,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let list = index.list_watched_addresses("bitcoin").await.unwrap();
+    assert_eq!(list[0].3.as_deref(), Some("0x42060A5Fc138ee019BC3F777B51c6490A1b881f0"));
 }
 
 #[tokio::test]
@@ -150,7 +189,7 @@ async fn test_watch_list_via_index_backend_trait() {
     let index = open_index(IndexKind::Sqlite, &db_path, "").await.unwrap();
 
     index
-        .add_watched_address("baals", "addr123", 42, Some("test-label"))
+        .add_watched_address("baals", "addr123", 42, Some("test-label"), None)
         .await
         .unwrap();
 
@@ -159,6 +198,7 @@ async fn test_watch_list_via_index_backend_trait() {
     assert_eq!(list[0].0, "addr123");
     assert_eq!(list[0].1, 42);
     assert_eq!(list[0].2.as_deref(), Some("test-label"));
+    assert_eq!(list[0].3, None);
 
     let watched = index.is_address_watched("baals", "addr123").await.unwrap();
     assert!(watched);

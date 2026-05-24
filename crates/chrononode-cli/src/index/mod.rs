@@ -192,6 +192,7 @@ pub trait IndexBackend: Send + Sync {
         address: &str,
         added_at_block: u64,
         label: Option<&str>,
+        evm_wallet: Option<&str>,
     ) -> Result<()>;
 
     async fn remove_watched_address(&self, chain_id: &str, address: &str) -> Result<()>;
@@ -199,7 +200,7 @@ pub trait IndexBackend: Send + Sync {
     async fn list_watched_addresses(
         &self,
         chain_id: &str,
-    ) -> Result<Vec<(String, i64, Option<String>)>>;
+    ) -> Result<Vec<(String, i64, Option<String>, Option<String>)>>;
 
     async fn is_address_watched(&self, chain_id: &str, address: &str) -> Result<bool>;
 
@@ -490,8 +491,9 @@ impl IndexBackend for SqliteIndex {
         address: &str,
         added_at_block: u64,
         label: Option<&str>,
+        evm_wallet: Option<&str>,
     ) -> Result<()> {
-        SqliteIndex::add_watched_address(self, chain_id, address, added_at_block, label).await
+        SqliteIndex::add_watched_address(self, chain_id, address, added_at_block, label, evm_wallet).await
     }
 
     async fn remove_watched_address(&self, chain_id: &str, address: &str) -> Result<()> {
@@ -501,7 +503,7 @@ impl IndexBackend for SqliteIndex {
     async fn list_watched_addresses(
         &self,
         chain_id: &str,
-    ) -> Result<Vec<(String, i64, Option<String>)>> {
+    ) -> Result<Vec<(String, i64, Option<String>, Option<String>)>> {
         SqliteIndex::list_watched_addresses(self, chain_id).await
     }
 
@@ -804,8 +806,9 @@ impl IndexBackend for PostgresIndex {
         address: &str,
         added_at_block: u64,
         label: Option<&str>,
+        evm_wallet: Option<&str>,
     ) -> Result<()> {
-        PostgresIndex::add_watched_address(self, chain_id, address, added_at_block, label).await
+        PostgresIndex::add_watched_address(self, chain_id, address, added_at_block, label, evm_wallet).await
     }
 
     async fn remove_watched_address(&self, chain_id: &str, address: &str) -> Result<()> {
@@ -815,7 +818,7 @@ impl IndexBackend for PostgresIndex {
     async fn list_watched_addresses(
         &self,
         chain_id: &str,
-    ) -> Result<Vec<(String, i64, Option<String>)>> {
+    ) -> Result<Vec<(String, i64, Option<String>, Option<String>)>> {
         PostgresIndex::list_watched_addresses(self, chain_id).await
     }
 

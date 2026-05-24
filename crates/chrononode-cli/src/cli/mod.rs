@@ -261,6 +261,10 @@ pub enum WatchAction {
         /// Optional label for the address
         #[arg(long)]
         label: Option<String>,
+
+        /// EVM wallet address to receive rewards when dormancy is attested
+        #[arg(long)]
+        evm_wallet: Option<String>,
     },
 
     /// Bulk import addresses from a file (one address per line, optional format: address,label)

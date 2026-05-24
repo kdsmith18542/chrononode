@@ -984,16 +984,20 @@ impl PostgresIndex {
         address: &str,
         added_at_block: u64,
         label: Option<&str>,
+        evm_wallet: Option<&str>,
     ) -> Result<()> {
         sqlx::query(
-            "INSERT INTO watched_addresses (chain_id, address, added_at_block, label, created_at)
-             VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (chain_id, address) DO NOTHING",
+            "INSERT INTO watched_addresses (chain_id, address, added_at_block, label, evm_wallet, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (chain_id, address) DO UPDATE SET
+               label = COALESCE(EXCLUDED.label, watched_addresses.label),
+               evm_wallet = COALESCE(EXCLUDED.evm_wallet, watched_addresses.evm_wallet)",
         )
         .bind(chain_id)
         .bind(address)
         .bind(added_at_block as i64)
         .bind(label)
+        .bind(evm_wallet)
         .bind(chrono::Utc::now().timestamp())
         .execute(&self.pool)
         .await
@@ -1014,9 +1018,9 @@ impl PostgresIndex {
     pub async fn list_watched_addresses(
         &self,
         chain_id: &str,
-    ) -> Result<Vec<(String, i64, Option<String>)>> {
-        let rows: Vec<(String, i64, Option<String>)> = sqlx::query_as(
-            "SELECT address, added_at_block, label FROM watched_addresses WHERE chain_id = $1 ORDER BY added_at_block DESC",
+    ) -> Result<Vec<(String, i64, Option<String>, Option<String>)>> {
+        let rows: Vec<(String, i64, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT address, added_at_block, label, evm_wallet FROM watched_addresses WHERE chain_id = $1 ORDER BY added_at_block DESC",
         )
         .bind(chain_id)
         .fetch_all(&self.pool)

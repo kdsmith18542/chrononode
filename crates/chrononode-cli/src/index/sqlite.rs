@@ -227,6 +227,7 @@ impl SqliteIndex {
                 address TEXT NOT NULL,
                 added_at_block INTEGER NOT NULL,
                 label TEXT,
+                evm_wallet TEXT,
                 created_at INTEGER NOT NULL,
                 PRIMARY KEY (chain_id, address)
             )",
@@ -234,6 +235,11 @@ impl SqliteIndex {
         .execute(&self.pool)
         .await
         .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        // Migration: add evm_wallet column if it doesn't exist (for existing DBs)
+        let _ = sqlx::query("ALTER TABLE watched_addresses ADD COLUMN evm_wallet TEXT")
+            .execute(&self.pool)
+            .await;
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS address_activity (
@@ -974,15 +980,20 @@ impl SqliteIndex {
         address: &str,
         added_at_block: u64,
         label: Option<&str>,
+        evm_wallet: Option<&str>,
     ) -> Result<()> {
         sqlx::query(
-            "INSERT OR IGNORE INTO watched_addresses (chain_id, address, added_at_block, label, created_at)
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO watched_addresses (chain_id, address, added_at_block, label, evm_wallet, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT (chain_id, address) DO UPDATE SET
+               label = COALESCE(excluded.label, watched_addresses.label),
+               evm_wallet = COALESCE(excluded.evm_wallet, watched_addresses.evm_wallet)",
         )
         .bind(chain_id)
         .bind(address)
         .bind(added_at_block as i64)
         .bind(label)
+        .bind(evm_wallet)
         .bind(chrono::Utc::now().timestamp())
         .execute(&self.pool)
         .await
@@ -1003,9 +1014,9 @@ impl SqliteIndex {
     pub async fn list_watched_addresses(
         &self,
         chain_id: &str,
-    ) -> Result<Vec<(String, i64, Option<String>)>> {
-        let rows: Vec<(String, i64, Option<String>)> = sqlx::query_as(
-            "SELECT address, added_at_block, label FROM watched_addresses WHERE chain_id = ? ORDER BY added_at_block DESC",
+    ) -> Result<Vec<(String, i64, Option<String>, Option<String>)>> {
+        let rows: Vec<(String, i64, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT address, added_at_block, label, evm_wallet FROM watched_addresses WHERE chain_id = ? ORDER BY added_at_block DESC",
         )
         .bind(chain_id)
         .fetch_all(&self.pool)

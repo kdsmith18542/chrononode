@@ -14,7 +14,7 @@ async fn test_dormancy_set_and_get() {
     let index = setup_index(&tmp).await;
 
     index
-        .add_watched_address("bitcoin", "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", 0, None)
+        .add_watched_address("bitcoin", "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", 0, None, None)
         .await
         .unwrap();
 

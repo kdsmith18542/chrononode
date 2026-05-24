@@ -96,7 +96,8 @@ async fn main() -> anyhow::Result<()> {
                 chain,
                 address,
                 label,
-            } => cmd_watch_add(&chain, &address, label.as_deref()).await?,
+                evm_wallet,
+            } => cmd_watch_add(&chain, &address, label.as_deref(), evm_wallet.as_deref()).await?,
             WatchAction::Import { chain, file } => cmd_watch_import(&chain, &file).await?,
             WatchAction::Remove { chain, address } => cmd_watch_remove(&chain, &address).await?,
             WatchAction::List { chain } => cmd_watch_list(&chain).await?,
@@ -704,13 +705,13 @@ async fn cmd_stats(chain: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn cmd_watch_add(chain: &str, address: &str, label: Option<&str>) -> anyhow::Result<()> {
+async fn cmd_watch_add(chain: &str, address: &str, label: Option<&str>, evm_wallet: Option<&str>) -> anyhow::Result<()> {
     let data_dir = data_dir_for(chain);
     std::fs::create_dir_all(&data_dir)?;
     let db_path = data_dir.join("index.db");
     let kind = configured_index_kind();
     let index = open_index(kind, &db_path, "").await?;
-    index.add_watched_address(chain, address, 0, label).await?;
+    index.add_watched_address(chain, address, 0, label, evm_wallet).await?;
     tracing::info!(
         "Added address {} to watch list for chain {}",
         address,
@@ -748,11 +749,12 @@ async fn cmd_watch_list(chain: &str) -> anyhow::Result<()> {
         println!("No watched addresses for chain {}", chain);
     } else {
         println!("Watched addresses for chain {}:", chain);
-        for (addr, block, label) in &addresses {
+        for (addr, block, label, evm_wallet) in &addresses {
             let label_str = label.as_deref().unwrap_or("-");
+            let evm_str = evm_wallet.as_deref().unwrap_or("-");
             println!(
-                "  {} (added at block {}, label: {})",
-                addr, block, label_str
+                "  {} (added at block {}, label: {}, evm_wallet: {})",
+                addr, block, label_str, evm_str
             );
         }
     }
@@ -800,7 +802,7 @@ async fn cmd_dormancy_scan(chain: &str, current_height: Option<u64>) -> anyhow::
     let mut dormant_count = 0u64;
     let mut active_count = 0u64;
 
-    for (addr, _added_at, _label) in &watched {
+    for (addr, _added_at, _label, evm_wallet) in &watched {
         let last_seen = index.get_last_seen(chain, addr).await?;
         let is_currently_dormant = index.get_dormancy_status(chain, addr).await?.is_some();
 
@@ -854,7 +856,7 @@ async fn cmd_dormancy_scan(chain: &str, current_height: Option<u64>) -> anyhow::
                 threshold_blocks: threshold,
                 signer_pubkey: None,
                 signature: None,
-                evm_wallet: None,
+                evm_wallet: evm_wallet.clone(),
             };
             match submitter
                 .submit_dormancy_proof(&proof, index.as_ref())
@@ -933,7 +935,7 @@ async fn cmd_watch_import(chain: &str, file: &str) -> anyhow::Result<()> {
             Some((addr, lbl)) => (addr.trim(), Some(lbl.trim())),
             None => (line, None),
         };
-        index.add_watched_address(chain, address, 0, label).await?;
+        index.add_watched_address(chain, address, 0, label, None).await?;
         count += 1;
     }
     tracing::info!(
@@ -1340,7 +1342,7 @@ display_name = "Reloaded Version"
         let address = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa";
 
         index
-            .add_watched_address(chain, address, 100_000, Some("satoshi"))
+            .add_watched_address(chain, address, 100_000, Some("satoshi"), None)
             .await
             .unwrap();
 
@@ -1386,7 +1388,7 @@ display_name = "Reloaded Version"
 
         let mut dormant_count = 0u64;
 
-        for (addr, _added_at, _label) in &watched {
+        for (addr, _added_at, _label, _evm_wallet) in &watched {
             let last_seen = index.get_last_seen(chain, addr).await.unwrap();
             let is_currently_dormant = index
                 .get_dormancy_status(chain, addr)
