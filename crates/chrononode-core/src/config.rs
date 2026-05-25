@@ -134,8 +134,12 @@ impl Default for AttestationConfig {
     }
 }
 
-fn default_checkpoint_size() -> u64 { 1000 }
-fn default_hash_algorithm() -> String { "sha256".to_string() }
+fn default_checkpoint_size() -> u64 {
+    1000
+}
+fn default_hash_algorithm() -> String {
+    "sha256".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoreConfig {

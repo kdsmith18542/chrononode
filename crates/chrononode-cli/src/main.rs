@@ -201,7 +201,7 @@ fn configured_backend_kind() -> anyhow::Result<BackendKind> {
 }
 
 fn start_config_watcher(chain: &str, pipeline: Arc<ArchivePipeline>) {
-    use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher, PollWatcher};
+    use notify::{Event, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher};
     use std::time::Duration;
     use tokio::sync::mpsc;
 
@@ -243,7 +243,11 @@ fn start_config_watcher(chain: &str, pipeline: Arc<ArchivePipeline>) {
     };
 
     if let Err(e) = watcher.watch(&watch_target, RecursiveMode::NonRecursive) {
-        tracing::warn!("Failed to watch path {:?} with RecommendedWatcher: {}. Falling back to PollWatcher.", watch_target, e);
+        tracing::warn!(
+            "Failed to watch path {:?} with RecommendedWatcher: {}. Falling back to PollWatcher.",
+            watch_target,
+            e
+        );
         use_poll = true;
     }
 
@@ -272,7 +276,11 @@ fn start_config_watcher(chain: &str, pipeline: Arc<ArchivePipeline>) {
         };
 
         if let Err(pe) = poll_watcher.watch(&watch_target, RecursiveMode::NonRecursive) {
-            tracing::error!("Failed to watch path {:?} with PollWatcher: {}", watch_target, pe);
+            tracing::error!(
+                "Failed to watch path {:?} with PollWatcher: {}",
+                watch_target,
+                pe
+            );
             return;
         }
 
@@ -705,13 +713,20 @@ async fn cmd_stats(chain: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn cmd_watch_add(chain: &str, address: &str, label: Option<&str>, evm_wallet: Option<&str>) -> anyhow::Result<()> {
+async fn cmd_watch_add(
+    chain: &str,
+    address: &str,
+    label: Option<&str>,
+    evm_wallet: Option<&str>,
+) -> anyhow::Result<()> {
     let data_dir = data_dir_for(chain);
     std::fs::create_dir_all(&data_dir)?;
     let db_path = data_dir.join("index.db");
     let kind = configured_index_kind();
     let index = open_index(kind, &db_path, "").await?;
-    index.add_watched_address(chain, address, 0, label, evm_wallet).await?;
+    index
+        .add_watched_address(chain, address, 0, label, evm_wallet)
+        .await?;
     tracing::info!(
         "Added address {} to watch list for chain {}",
         address,
@@ -935,7 +950,9 @@ async fn cmd_watch_import(chain: &str, file: &str) -> anyhow::Result<()> {
             Some((addr, lbl)) => (addr.trim(), Some(lbl.trim())),
             None => (line, None),
         };
-        index.add_watched_address(chain, address, 0, label, None).await?;
+        index
+            .add_watched_address(chain, address, 0, label, None)
+            .await?;
         count += 1;
     }
     tracing::info!(

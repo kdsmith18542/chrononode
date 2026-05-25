@@ -50,6 +50,18 @@ CHRONONODE_PINATA_JWT=your_jwt_here
 # CHRONONODE_PINATA_GATEWAY_BASE=https://gateway.pinata.cloud
 ```
 
+### Index Backend Selection
+
+Set `CHRONONODE_INDEX_BACKEND` to select index persistence:
+
+```bash
+CHRONONODE_INDEX_BACKEND=sqlite   # default
+CHRONONODE_INDEX_BACKEND=postgres
+# Feature-gated compatibility aliases:
+CHRONONODE_INDEX_BACKEND=mongodb
+CHRONONODE_INDEX_BACKEND=scylla
+```
+
 ## First Supported Network
 
 BaaLS is the first reference adapter. ChronoNode is not limited to BaaLS; additional networks can be supported through the ChainAdapter interface.
@@ -149,7 +161,8 @@ GET  /api-docs                             # OpenAPI/Swagger UI
 
 ## Status
 
-Early design/build phase. Not production-ready.
+Active development with live VPS deployment for API + ingest services.
+Core archival, proof, dormancy, attestation, and EVM submission flows are implemented and covered by passing tests.
 
 ## License
 

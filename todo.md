@@ -2,6 +2,9 @@
 
 This comprehensive task list is derived from the ChronoNode Project Blueprint (ChronoNodePB.md), Technical Specifications (ChronoNodeTB.md), and Monetization Strategy (ChronoNodeMonetization.md). It outlines the complete roadmap for building the ChronoNode decentralized blockchain data archival ecosystem.
 
+> Scope note (2026-05-24): this file tracks long-horizon strategy items, not short-term release blockers.
+> For current repo execution status and near-term deliverables, use `plan.md`.
+
 ## Project Overview
 
 ChronoNode is a cutting-edge, decentralized archival and multi-chain data layer built primarily with Rust. It addresses the blockchain size problem by creating an economically sustainable and cryptographically verifiable ecosystem for storing, compressing, indexing, and serving historical blockchain data through a microservices architecture.

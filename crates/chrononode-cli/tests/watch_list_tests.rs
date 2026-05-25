@@ -102,7 +102,10 @@ async fn test_watch_list_evm_wallet() {
 
     let list = index.list_watched_addresses("bitcoin").await.unwrap();
     assert_eq!(list.len(), 1);
-    assert_eq!(list[0].3.as_deref(), Some("0x42060A5Fc138ee019BC3F777B51c6490A1b881f0"));
+    assert_eq!(
+        list[0].3.as_deref(),
+        Some("0x42060A5Fc138ee019BC3F777B51c6490A1b881f0")
+    );
 
     // Re-adding without evm_wallet should not overwrite existing one
     index
@@ -117,7 +120,10 @@ async fn test_watch_list_evm_wallet() {
         .unwrap();
 
     let list = index.list_watched_addresses("bitcoin").await.unwrap();
-    assert_eq!(list[0].3.as_deref(), Some("0x42060A5Fc138ee019BC3F777B51c6490A1b881f0"));
+    assert_eq!(
+        list[0].3.as_deref(),
+        Some("0x42060A5Fc138ee019BC3F777B51c6490A1b881f0")
+    );
 }
 
 #[tokio::test]

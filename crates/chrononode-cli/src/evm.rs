@@ -51,10 +51,7 @@ impl EvmSubmitter {
                 .clone()
                 .unwrap_or_default(),
             gas_limit: config.attestation.evm_gas_limit,
-            chain_id: config
-                .attestation
-                .evm_chain_id
-                .unwrap_or(DEFAULT_CHAIN_ID),
+            chain_id: config.attestation.evm_chain_id.unwrap_or(DEFAULT_CHAIN_ID),
             enabled,
             private_key_bytes,
         }
@@ -98,8 +95,7 @@ impl EvmSubmitter {
             chrononode_core::CoreError::Internal(format!("contract address decode: {}", e))
         })?;
 
-        let raw_tx =
-            self.build_signed_tx(&signing_key, nonce, gas_price, &to_bytes, &call_data)?;
+        let raw_tx = self.build_signed_tx(&signing_key, nonce, gas_price, &to_bytes, &call_data)?;
 
         let body = serde_json::json!({
             "jsonrpc": "2.0",
@@ -155,9 +151,8 @@ impl EvmSubmitter {
 
         let hash = Keccak256::digest(&signing_payload);
 
-        let (sig, recid): (Signature, RecoveryId) = signing_key
-            .sign_prehash_recoverable(&hash)
-            .map_err(|e| {
+        let (sig, recid): (Signature, RecoveryId) =
+            signing_key.sign_prehash_recoverable(&hash).map_err(|e| {
                 chrononode_core::CoreError::Internal(format!("EVM signing error: {}", e))
             })?;
 
@@ -202,9 +197,8 @@ impl EvmSubmitter {
         let hex_nonce = resp["result"].as_str().ok_or_else(|| {
             chrononode_core::CoreError::Adapter(format!("nonce error: {:?}", resp["error"]))
         })?;
-        u64::from_str_radix(hex_nonce.strip_prefix("0x").unwrap_or(hex_nonce), 16).map_err(|e| {
-            chrononode_core::CoreError::Adapter(format!("nonce hex parse: {}", e))
-        })
+        u64::from_str_radix(hex_nonce.strip_prefix("0x").unwrap_or(hex_nonce), 16)
+            .map_err(|e| chrononode_core::CoreError::Adapter(format!("nonce hex parse: {}", e)))
     }
 
     async fn get_gas_price(&self, client: &reqwest::Client) -> Result<u64> {
@@ -219,9 +213,7 @@ impl EvmSubmitter {
             .json(&body)
             .send()
             .await
-            .map_err(|e| {
-                chrononode_core::CoreError::Adapter(format!("gasPrice RPC error: {}", e))
-            })?
+            .map_err(|e| chrononode_core::CoreError::Adapter(format!("gasPrice RPC error: {}", e)))?
             .json()
             .await
             .map_err(|e| {
@@ -230,9 +222,8 @@ impl EvmSubmitter {
         let hex_price = resp["result"].as_str().ok_or_else(|| {
             chrononode_core::CoreError::Adapter(format!("gasPrice error: {:?}", resp["error"]))
         })?;
-        u64::from_str_radix(hex_price.strip_prefix("0x").unwrap_or(hex_price), 16).map_err(|e| {
-            chrononode_core::CoreError::Adapter(format!("gasPrice hex parse: {}", e))
-        })
+        u64::from_str_radix(hex_price.strip_prefix("0x").unwrap_or(hex_price), 16)
+            .map_err(|e| chrononode_core::CoreError::Adapter(format!("gasPrice hex parse: {}", e)))
     }
 
     fn encode_dormancy_proof(&self, proof: &DormancyProof) -> Vec<u8> {
@@ -414,9 +405,8 @@ mod tests {
         config.attestation.evm_contract_address =
             Some("0x1234567890123456789012345678901234567890".to_string());
         // well-known test private key (not used on mainnet)
-        config.attestation.evm_private_key = Some(
-            "4c0883a69102937d6231471b5dbb6e538eba2ef4ac23d7a843dfd94820ee0b59".to_string(),
-        );
+        config.attestation.evm_private_key =
+            Some("4c0883a69102937d6231471b5dbb6e538eba2ef4ac23d7a843dfd94820ee0b59".to_string());
         config
     }
 

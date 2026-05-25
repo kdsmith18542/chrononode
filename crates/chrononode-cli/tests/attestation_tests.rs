@@ -16,6 +16,7 @@ fn make_submitter_config(api_url: &str, key_path: Option<&str>) -> CoreConfig {
         attestation: AttestationConfig {
             baals_api_url: Some(api_url.to_string()),
             baals_key_path: key_path.map(|s| s.to_string()),
+            baals_tls_skip_verify: false,
             auto_submit: true,
             evm_rpc_url: None,
             evm_contract_address: None,

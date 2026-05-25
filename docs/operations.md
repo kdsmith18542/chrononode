@@ -82,6 +82,38 @@ chrononode ingest --chain mock --from 0 --follow
 chrononode serve --chain mock --port 8080 --rate-limit 100
 ```
 
+## Resurgence Wiring (Operational)
+
+Use the deploy scripts to complete one-time wiring tasks in each environment.
+
+### 1) Authorize ChronoNode Oracle in RewardDistributor
+
+```bash
+export REWARD_DISTRIBUTOR=0x...
+export CHRONONODE_ORACLE_ADDRESS=0x...
+export ARBITRUM_SEPOLIA_RPC=https://sepolia-rollup.arbitrum.io/rpc
+# Optional, defaults to "timelock"
+export TIMELOCK_ACCOUNT=timelock
+
+./deploy/scripts/authorize-dormancy-oracle.sh
+```
+
+### 2) Bootstrap BTC/DOGE Watch Lists
+
+```bash
+# Uses config/watchlist-bitcoin.txt and config/watchlist-dogecoin.txt by default
+./deploy/scripts/import-watchlists.sh
+```
+
+Optional overrides:
+
+```bash
+export CHRONONODE_BIN=chrononode
+export BTC_WATCHLIST_FILE=/path/to/watchlist-bitcoin.txt
+export DOGE_WATCHLIST_FILE=/path/to/watchlist-dogecoin.txt
+./deploy/scripts/import-watchlists.sh
+```
+
 ## Runtime Configuration
 
 Environment variables:

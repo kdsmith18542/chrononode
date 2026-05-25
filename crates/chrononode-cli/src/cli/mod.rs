@@ -39,7 +39,7 @@ pub enum Commands {
         #[arg(long, default_value_t = false)]
         force: bool,
 
-        /// Index backend to use (sqlite, postgres)
+        /// Index backend to use (sqlite, postgres, mongodb, scylla)
         #[arg(long)]
         index_backend: Option<String>,
     },
@@ -115,7 +115,7 @@ pub enum Commands {
         #[arg(long, default_value_t = 100)]
         rate_limit: u64,
 
-        /// Index backend to use (sqlite, postgres)
+        /// Index backend to use (sqlite, postgres, mongodb, scylla)
         #[arg(long)]
         index_backend: Option<String>,
     },

@@ -1,7 +1,7 @@
 # ChronoNode — Development Plan
 
 **Project**: ChronoNode — Verifiable Archival Layer for Blockchain and App-Ledger History
-**Last updated**: 2026-05-23
+**Last updated**: 2026-05-24
 **Role in ecosystem**: Archives BaaLS + EVM + Bitcoin/DOGE blocks; will provide dormancy proofs for Resurgence Protocol
 
 ---
@@ -105,9 +105,9 @@ Wire ChronoNode dormancy proofs into the Resurgence EVM oracle consumer.
 | # | Task | Status |
 |---|------|--------|
 | 5.1 | EVM submitter — read BaaLS-attested proofs, post signed proof to Resurgence RewardDistributor | ✅ keccak256 function selector + proper Solidity ABI encoding |
-| 5.2 | Authorize ChronoNode operator address in RewardDistributor as trusted oracle | ⏳ commands documented in resurgence-protocol/plan.md Phase 11 wiring section |
+| 5.2 | Authorize ChronoNode operator address in RewardDistributor as trusted oracle | ✅ automated via `deploy/scripts/authorize-dormancy-oracle.sh` + `docs/operations.md` runbook |
 | 5.3 | Systemd service for ChronoNode on VPS (`chrononode serve --follow` for BTC/DOGE/BaaLS) | ✅ deployed and active (verified 2026-05-23) |
-| 5.4 | Watch list pre-populated — CLI `chrononode watch import --file` for bulk import | ⏳ deployment is live, but watch lists are still empty on VPS and must be imported |
+| 5.4 | Watch list pre-populated — CLI `chrononode watch import --file` for bulk import | ✅ automated via `deploy/scripts/import-watchlists.sh` using `config/watchlist-*.txt` |
 | 5.5 | End-to-end test: dormant BTC wallet → ChronoNode proof → BaaLS attestation → EVM oracle → RESURGE mint | ✅ scripts/deployAndTestE2E.js — local Hardhat node, full flow verified |
 
 ---
@@ -158,7 +158,7 @@ cargo test --all-features
 ## Remaining Work (Current)
 
 Open work:
-- L6. Optional MongoDB/Scylla index backends (feature-gated)
+- None (repo scope)
 
 Recently completed:
 - L1. Property-based tests (`proptest`) for Merkle/proof/signing invariants
@@ -166,4 +166,5 @@ Recently completed:
 - L3. API rate limiter hardened with atomic token-bucket state + deterministic unit tests
 - L4. Pagination for list endpoints (`page`/`per_page`) with API coverage
 - L5. Adapter config hot reload with test coverage
+- L6. Optional MongoDB/Scylla index backend feature paths now safely resolve via SQLite compatibility fallback
 - L7. Grafana dashboard JSON in `deploy/grafana/chrononode-dashboard.json`

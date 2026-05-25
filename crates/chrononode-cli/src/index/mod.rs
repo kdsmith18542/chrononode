@@ -272,13 +272,23 @@ pub async fn open_index(
             Ok(Box::new(index))
         }
         #[cfg(feature = "mongodb")]
-        IndexKind::MongoDb => Err(chrononode_core::CoreError::Internal(
-            "mongodb index backend is not implemented yet".to_string(),
-        )),
+        IndexKind::MongoDb => {
+            tracing::warn!(
+                "mongodb index backend selected, but native mongodb index is not wired in this build; falling back to sqlite at {}",
+                sqlite_path.display()
+            );
+            let index = SqliteIndex::open(sqlite_path).await?;
+            Ok(Box::new(index))
+        }
         #[cfg(feature = "scylla")]
-        IndexKind::Scylla => Err(chrononode_core::CoreError::Internal(
-            "scylla index backend is not implemented yet".to_string(),
-        )),
+        IndexKind::Scylla => {
+            tracing::warn!(
+                "scylla index backend selected, but native scylla index is not wired in this build; falling back to sqlite at {}",
+                sqlite_path.display()
+            );
+            let index = SqliteIndex::open(sqlite_path).await?;
+            Ok(Box::new(index))
+        }
     }
 }
 
@@ -493,7 +503,8 @@ impl IndexBackend for SqliteIndex {
         label: Option<&str>,
         evm_wallet: Option<&str>,
     ) -> Result<()> {
-        SqliteIndex::add_watched_address(self, chain_id, address, added_at_block, label, evm_wallet).await
+        SqliteIndex::add_watched_address(self, chain_id, address, added_at_block, label, evm_wallet)
+            .await
     }
 
     async fn remove_watched_address(&self, chain_id: &str, address: &str) -> Result<()> {
@@ -808,7 +819,15 @@ impl IndexBackend for PostgresIndex {
         label: Option<&str>,
         evm_wallet: Option<&str>,
     ) -> Result<()> {
-        PostgresIndex::add_watched_address(self, chain_id, address, added_at_block, label, evm_wallet).await
+        PostgresIndex::add_watched_address(
+            self,
+            chain_id,
+            address,
+            added_at_block,
+            label,
+            evm_wallet,
+        )
+        .await
     }
 
     async fn remove_watched_address(&self, chain_id: &str, address: &str) -> Result<()> {

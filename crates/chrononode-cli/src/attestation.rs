@@ -1,23 +1,9 @@
 use chrononode_core::{CoreConfig, DormancyProof, Result};
-use ed25519_dalek::Signer;
-use serde::Serialize;
 
 pub struct BaalsSubmitter {
     client: reqwest::Client,
     api_url: String,
     signing_key: Option<ed25519_dalek::SigningKey>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct BaalsTransactionJson {
-    #[serde(rename = "type")]
-    tx_type: String,
-    sender: String,
-    recipient: String,
-    payload: serde_json::Value,
-    nonce: u64,
-    gas_limit: u64,
-    gas_price: u64,
 }
 
 impl BaalsSubmitter {
@@ -109,14 +95,18 @@ impl BaalsSubmitter {
         })?;
 
         let attestation = response.get("attestation").ok_or_else(|| {
-            chrononode_core::CoreError::Adapter("BaaLS response missing attestation field".to_string())
+            chrononode_core::CoreError::Adapter(
+                "BaaLS response missing attestation field".to_string(),
+            )
         })?;
 
         let baals_sig = attestation
             .get("baals_signature")
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
-                chrononode_core::CoreError::Adapter("BaaLS attestation missing baals_signature".to_string())
+                chrononode_core::CoreError::Adapter(
+                    "BaaLS attestation missing baals_signature".to_string(),
+                )
             })?
             .to_string();
 
