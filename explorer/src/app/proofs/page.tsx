@@ -1,12 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { fetchChains, fetchStats, fetchBlock, ChronoBlock, ChainInfo } from '../utils/api';
 
-export default function Dashboard() {
+function DashboardInner() {
+  const searchParams = useSearchParams();
   const [chains, setChains] = useState<ChainInfo[]>([]);
-  const [selectedChain, setSelectedChain] = useState('bitcoin-light');
+  const [selectedChain, setSelectedChain] = useState(
+    searchParams.get('chain') || 'bitcoin-light'
+  );
   const [stats, setStats] = useState<any>(null);
   const [recentBlocks, setRecentBlocks] = useState<ChronoBlock[]>([]);
   const [loading, setLoading] = useState(true);
@@ -18,6 +22,13 @@ export default function Dashboard() {
     'Listening on port 8080...',
   ]);
   const [simulationHeight, setSimulationHeight] = useState(14205);
+
+  useEffect(() => {
+    const chainFromUrl = searchParams.get('chain');
+    if (chainFromUrl && chainFromUrl !== selectedChain) {
+      setSelectedChain(chainFromUrl);
+    }
+  }, [searchParams, selectedChain]);
 
   useEffect(() => {
     async function loadData() {
@@ -277,6 +288,14 @@ export default function Dashboard() {
         </>
       )}
     </div>
+  );
+}
+
+export default function Dashboard() {
+  return (
+    <Suspense fallback={<div style={{textAlign:'center',padding:'100px 0'}}><div style={{width:'40px',height:'40px',border:'3px solid rgba(255,255,255,0.05)',borderTopColor:'var(--accent-blue)',borderRadius:'50%',margin:'0 auto',animation:'spin 1s linear infinite'}}></div></div>}>
+      <DashboardInner />
+    </Suspense>
   );
 }
 

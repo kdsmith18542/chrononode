@@ -132,7 +132,7 @@ export default function Navbar() {
                     onClick={() => {
                       setSelectedChain(chain.id);
                       setShowDropdown(false);
-                      router.push(`/?chain=${chain.id}`);
+                      router.push(`/proofs?chain=${chain.id}`);
                     }}
                     style={{
                       ...styles.dropdownItem,
