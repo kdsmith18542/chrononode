@@ -14,14 +14,6 @@ function DashboardInner() {
   const [stats, setStats] = useState<any>(null);
   const [recentBlocks, setRecentBlocks] = useState<ChronoBlock[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Simulation logs state
-  const [simulationLogs, setSimulationLogs] = useState<string[]>([
-    'Node initialized successfully.',
-    'SQLite index database loaded.',
-    'Listening on port 8080...',
-  ]);
-  const [simulationHeight, setSimulationHeight] = useState(14205);
 
   useEffect(() => {
     const chainFromUrl = searchParams.get('chain');
@@ -42,7 +34,6 @@ function DashboardInner() {
 
       // Load latest 8 blocks
       const latestHeight = currentStats.latest_height || 1000;
-      setSimulationHeight(latestHeight + 1);
       const blocks: ChronoBlock[] = [];
       for (let i = 0; i < 8; i++) {
         const h = latestHeight - i;
@@ -55,58 +46,6 @@ function DashboardInner() {
     }
     loadData();
   }, [selectedChain]);
-
-  const addSimulatedBlock = async () => {
-    const nextH = simulationHeight;
-    const logTime = new Date().toLocaleTimeString();
-    
-    setSimulationLogs(prev => [
-      `[${logTime}] Ingesting block ${nextH} from chain "${selectedChain}"...`,
-      ...prev
-    ]);
-
-    // Simulate fetch and archive
-    setTimeout(async () => {
-      const newBlock = await fetchBlock(selectedChain, nextH);
-      // Randomize block hash and transactions a bit for simulation realism
-      newBlock.transactions = newBlock.transactions.map((tx, idx) => ({
-        ...tx,
-        amount: Math.floor(Math.random() * 5000000)
-      }));
-      
-      setRecentBlocks(prev => [newBlock, ...prev.slice(0, 7)]);
-      setSimulationHeight(nextH + 1);
-      
-      // Update stats
-      setStats((prev: any) => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          block_count: prev.block_count + 1,
-          latest_height: nextH,
-          tx_count: prev.tx_count + newBlock.transactions.length,
-          storage_size_bytes: prev.storage_size_bytes + 25000
-        };
-      });
-
-      setSimulationLogs(prev => [
-        `[${logTime}] Successfully archived block ${nextH} [Hash: ${newBlock.block_hash.slice(0, 14)}...]`,
-        `[${logTime}] DB checkpoints updated. UTXOs processed.`,
-        ...prev
-      ]);
-    }, 800);
-  };
-
-  const triggerCheckpoint = () => {
-    const logTime = new Date().toLocaleTimeString();
-    setSimulationLogs(prev => [
-      `[${logTime}] Initiating checkpoint builder for height ${simulationHeight - 1}...`,
-      `[${logTime}] Merkle Tree root generated: 0x9f81041bc73a9f06b6d410b981f59e0b8b5cf63b82f671c56a`,
-      `[${logTime}] Checkpoint signature: signed with active server KeyPair`,
-      `[${logTime}] Exported checkpoint checkpoint_${simulationHeight - 1}.json successfully`,
-      ...prev
-    ]);
-  };
 
   return (
     <div style={styles.container}>
@@ -229,36 +168,30 @@ function DashboardInner() {
               </div>
             </section>
 
-            {/* Right Column: Ingestion Log & Interactive Simulator */}
+            {/* Right Column: Live Pipeline Status */}
             <section style={styles.rightCol}>
               <div style={styles.simulatorCard} className="glass-panel">
-                <h3 style={styles.simulatorTitle}>Interactive Sync Simulator</h3>
+                <h3 style={styles.simulatorTitle}>Live Pipeline Status</h3>
                 <p style={styles.simulatorDesc}>
-                  Demonstrate the pipeline. Submits mock blockchain block streams, processes Merkle proof leaves, and commits index updates.
+                  Real-time view of the ChronoNode archive pipeline. Attestations, dormancy proofs,
+                  and BaaLS submissions flow through this infrastructure.
                 </p>
-
-                <div style={styles.btnRow}>
-                  <button onClick={addSimulatedBlock} className="glow-btn">
-                    <span>⚡</span>
-                    Ingest Next Block
-                  </button>
-                  <button onClick={triggerCheckpoint} className="glow-btn-secondary">
-                    <span>🛡️</span>
-                    Build Checkpoint
-                  </button>
-                </div>
 
                 <div style={styles.logConsole}>
                   <div style={styles.consoleHeader}>
-                    <span>live_node_pipeline.log</span>
+                    <span>chrononode.service — last 5 blocks</span>
                     <span style={styles.consoleDot}></span>
                   </div>
                   <div style={styles.logLines}>
-                    {simulationLogs.map((log, index) => (
-                      <div key={index} style={styles.logLine} className="code-font">
-                        {log}
+                    {recentBlocks.length > 0 ? recentBlocks.slice(0, 5).map((b, idx) => (
+                      <div key={idx} style={styles.logLine} className="code-font">
+                        #{b.height} — {b.block_hash.slice(0, 16)}... — {b.transactions.length} txs
                       </div>
-                    ))}
+                    )) : (
+                      <div style={{ ...styles.logLine, color: 'var(--text-muted)' }}>
+                        Loading block data from ChronoNode API...
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

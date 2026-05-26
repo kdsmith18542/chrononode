@@ -3,6 +3,16 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
+import { fetchChains, ChainInfo } from '../utils/api';
+
+const CHAIN_ICONS: Record<string, string> = {
+  'bitcoin-light': '₿',
+  dogecoin: '🐕',
+  baals: '🧬',
+  bitcoin: '₿',
+  ethereum: '♦',
+  mock: '⚡',
+};
 
 export default function Navbar() {
   const router = useRouter();
@@ -14,6 +24,12 @@ export default function Navbar() {
   const [walletAddress, setWalletAddress] = useState('');
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [chains, setChains] = useState<ChainInfo[]>([]);
+
+  // Load real chain list from API
+  useEffect(() => {
+    fetchChains().then(setChains).catch(() => {});
+  }, []);
 
   // Sync chain with route parameter if available
   useEffect(() => {
@@ -85,12 +101,6 @@ export default function Navbar() {
     localStorage.removeItem('wallet_address');
   };
 
-  const chains = [
-    { id: 'bitcoin-light', name: 'Bitcoin Light', icon: '₿' },
-    { id: 'dogecoin', name: 'Dogecoin', icon: '🐕' },
-    { id: 'baals', name: 'BaaLS Chain', icon: '🧬' }
-  ];
-
   return (
     <>
       <nav style={styles.nav} className="glass-panel">
@@ -118,8 +128,8 @@ export default function Navbar() {
               onClick={() => setShowDropdown(!showDropdown)} 
               style={styles.dropdownBtn}
             >
-              <span>{chains.find(c => c.id === selectedChain)?.icon}</span>
-              <span>{chains.find(c => c.id === selectedChain)?.name}</span>
+              <span>{CHAIN_ICONS[selectedChain] || '⬡'}</span>
+              <span>{chains.find(c => c.chain_id === selectedChain)?.display_name || selectedChain}</span>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="6 9 12 15 18 9"></polyline>
               </svg>
@@ -128,20 +138,20 @@ export default function Navbar() {
               <div style={styles.dropdownMenu} className="glass-panel">
                 {chains.map((chain) => (
                   <button
-                    key={chain.id}
+                    key={chain.chain_id}
                     onClick={() => {
-                      setSelectedChain(chain.id);
+                      setSelectedChain(chain.chain_id);
                       setShowDropdown(false);
-                      router.push(`/proofs?chain=${chain.id}`);
+                      router.push(`/proofs?chain=${chain.chain_id}`);
                     }}
                     style={{
                       ...styles.dropdownItem,
-                      backgroundColor: selectedChain === chain.id ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
-                      color: selectedChain === chain.id ? 'var(--text-primary)' : 'var(--text-secondary)'
+                      backgroundColor: selectedChain === chain.chain_id ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                      color: selectedChain === chain.chain_id ? 'var(--text-primary)' : 'var(--text-secondary)'
                     }}
                   >
-                    <span>{chain.icon}</span>
-                    <span>{chain.name}</span>
+                    <span>{CHAIN_ICONS[chain.chain_id] || '⬡'}</span>
+                    <span>{chain.display_name}</span>
                   </button>
                 ))}
               </div>
