@@ -1,8 +1,8 @@
 # ChronoNode — Development Plan
 
 **Project**: ChronoNode — Verifiable Archival Layer for Blockchain and App-Ledger History
-**Last updated**: 2026-05-24
-**Role in ecosystem**: Archives BaaLS + EVM + Bitcoin/DOGE blocks; will provide dormancy proofs for Resurgence Protocol
+**Last updated**: 2026-05-25
+**Role in ecosystem**: Live dormancy oracle for Resurgence Protocol. Archives BTC/DOGE activity, generates signed DormancyProofs, submits to BaaLS. BaaLS EVMSubmitter calls RewardDistributor on Arbitrum Sepolia. Full pipeline verified in production 2026-05-24.
 
 ---
 
@@ -26,7 +26,9 @@
 | Dogecoin adapter | ✅ Done | BlockCypher API for DOGE blocks + txs |
 | BaaLS attestation submitter | ✅ Done | `BaalsSubmitter` POSTs dormancy proof as BaaLS `Data` tx |
 | EVM submitter | ✅ Done | keccak256 function selector + Solidity ABI encoding for RewardDistributor |
-| Systemd service | ✅ Deployed | Verified live on VPS (2026-05-23): `chrononode.service`, `chrononode-ingest@bitcoin-light`, `chrononode-ingest@dogecoin` |
+| Systemd service | ✅ Deployed | `chrononode.service`, `chrononode-ingest@bitcoin-light`, `chrononode-ingest@dogecoin`, `chrononode-dormancy-scan@bitcoin-light.timer`, `chrononode-dormancy-scan@dogecoin.timer` (OnUnitActiveSec=6h) — all live on VPS |
+| `evm_wallet` field + `--evm-wallet` CLI flag | ✅ Done | watched_addresses column maps non-EVM address to EVM wallet; required for EVMSubmitter to pick up attestation |
+| Production pipeline E2E | ✅ Verified 2026-05-24 | ChronoNode scan → BaaLS attest → EVMSubmitter → RewardDistributor tx `0x904d948f...` (RESURGE minted) ✅ |
 
 ---
 
@@ -108,7 +110,7 @@ Wire ChronoNode dormancy proofs into the Resurgence EVM oracle consumer.
 | 5.2 | Authorize ChronoNode operator address in RewardDistributor as trusted oracle | ✅ automated via `deploy/scripts/authorize-dormancy-oracle.sh` + `docs/operations.md` runbook |
 | 5.3 | Systemd service for ChronoNode on VPS (`chrononode serve --follow` for BTC/DOGE/BaaLS) | ✅ deployed and active (verified 2026-05-23) |
 | 5.4 | Watch list pre-populated — CLI `chrononode watch import --file` for bulk import | ✅ automated via `deploy/scripts/import-watchlists.sh` using `config/watchlist-*.txt` |
-| 5.5 | End-to-end test: dormant BTC wallet → ChronoNode proof → BaaLS attestation → EVM oracle → RESURGE mint | ✅ scripts/deployAndTestE2E.js — local Hardhat node, full flow verified |
+| 5.5 | End-to-end test: dormant BTC wallet → ChronoNode proof → BaaLS attestation → EVM oracle → RESURGE mint | ✅ Local: scripts/deployAndTestE2E.js (Hardhat). Production: ChronoNode timer → BaaLS oracle → EVMSubmitter → RewardDistributor tx `0x904d948f...` on Arbitrum Sepolia ✅ (2026-05-24) |
 
 ---
 
@@ -134,14 +136,68 @@ Bitcoin / DOGE / BaaLS chain
         ↓
   DormancyIndex (threshold exceeded)
         ↓
-  DormancyProof (ed25519 signed)
+  DormancyProof
+  ├── ed25519 signed (current — trusted oracle key)
+  └── SP1 Groth16 (Phase 7 — trustless zkVM proof)
         ↓
   BaalsSubmitter → BaaLS chain (immutable record)
+  └── Arweave anchor (Phase 8 — permanent checkpoint)
         ↓
   EVMSubmitter → Resurgence RewardDistributor
+  ├── submitDormancyProof() via DORMANCY_ORACLE_ROLE (current)
+  └── verifyAndMint() via SP1 verifier contract (Phase 7)
         ↓
   RESURGE minted to staker
 ```
+
+---
+
+---
+
+## Phase 7 — zkVM Proof Mode (SP1 / RISC Zero)
+
+Upgrade dormancy proofs from ed25519-signed assertions to zero-knowledge proofs, enabling
+trustless on-chain verification without trusted oracle keys. Phase 3 priority — not required
+for testnet, required before mainnet audit.
+
+### Motivation
+Current proofs are signed by a ChronoNode-held ed25519 key. Verifiers must trust the oracle
+operator. zkVM proofs allow on-chain contracts to verify the dormancy computation itself — no
+trust required. Eliminates `DORMANCY_ORACLE_ROLE` attack surface on mainnet.
+
+### Chosen Framework: SP1 (Succinct Labs)
+- Rust-native: dormancy detection logic compiles directly to SP1 guest program
+- Groth16 on-chain verifier: small calldata, low gas cost (~200k gas)
+- Active testnet verifier contracts on Arbitrum Sepolia
+
+| # | Task | Status |
+|---|------|--------|
+| 7.1 | Extract `DormancyCalculator` into SP1-compatible guest program — pure function: `(WatchedAddress, Vec<BlockSummary>) → DormancyProof` | ✅ |
+| 7.2 | Add SP1 SDK dependency to `Cargo.toml` (feature-gated: `--features zkvm`) | ✅ |
+| 7.3 | Prover mode: `chrononode prove --zkvm sp1 --address <addr>` — generates proof + public inputs JSON | ✅ |
+| 7.4 | Add `proof_type: "sp1_groth16"` field to `DormancyProof` struct alongside existing `"ed25519"` type | ✅ |
+| 7.5 | Deploy SP1 verifier contract on Arbitrum Sepolia; store address in `deploy/contracts/sp1-verifier.json` | ✅ |
+| 7.6 | Update `RewardDistributor` (Resurgence) to accept SP1 proof via `verifyAndMint()` as alternative to `DORMANCY_ORACLE_ROLE` — trustless zkVM verification | ✅ |
+| 7.7 | Tests: SP1 guest program round-trips (dormant wallet → proof → verify), property tests for edge cases | ✅ |
+| 7.8 | Public proof explorer endpoint: `GET /v1/proofs/{address}/sp1` — returns proof + public inputs for independent verification | ✅ |
+
+**SP1 proof generation cost**: ~30s on modern hardware for a dormancy window computation.
+Acceptable for batch/off-peak generation; not suitable for real-time queries.
+
+---
+
+## Phase 8 — Arweave Checkpoint Anchoring
+
+Permanent record of ChronoNode checkpoint roots for historical verifiability. Checkpoints
+already exist in SQLite — this phase publishes them to Arweave.
+
+| # | Task | Status |
+|---|------|--------|
+| 8.1 | Add `ArweaveAnchor` backend to `StorageBackend` trait — wraps Irys SDK HTTP API | ✅ |
+| 8.2 | CLI: `chrononode checkpoint anchor --chain bitcoin --height <n>` — uploads checkpoint JSON + Merkle root to Arweave via Irys | ✅ |
+| 8.3 | Store Arweave TX IDs in SQLite `checkpoint_anchors(chain_id, height, arweave_tx_id)` table | ✅ |
+| 8.4 | REST: `GET /v1/chains/{chain_id}/checkpoints/{height}/anchor` — returns Arweave TX ID for external verification | ✅ |
+| 8.5 | Scheduled anchor: systemd timer `chrononode-anchor@bitcoin.timer` runs weekly | ✅ `chrononode-anchor@.service` + `chrononode-anchor@.timer` with idempotency skip |
 
 ---
 
@@ -158,9 +214,34 @@ cargo test --all-features
 ## Remaining Work (Current)
 
 Open work:
-- None (repo scope)
+- (none — all phases complete)
 
-Recently completed:
+Recently completed (2026-05-25):
+- **Phase 8.5 Complete**: systemd timer `chrononode-anchor@.timer` for weekly Arweave checkpoint anchoring
+  - `chrononode-anchor@.service` — oneshot service that anchors the latest checkpoint
+  - `chrononode-anchor@.timer` — weekly `OnCalendar` trigger with `Persistent=true`
+  - Idempotent: skips anchoring if the latest checkpoint's start height already has an Arweave TX recorded
+  - `cmd_checkpoint_anchor` refactored to support three modes: manual (--id + --tx_hash), specific height (--height), and latest (no flags)
+  - Deploy README updated with anchor service/timer instructions
+
+Recently completed (2026-05-25):
+- **Phase 7 COMPLETE**: SP1 Groth16 zkVM proof mode for trustless dormancy verification
+  - SP1 guest program (chrononode-zkvm-program) validates dormancy conditions in RISC-V bytecode
+  - CLI command: `chrononode prove --zkvm sp1 --address <addr> [--mock]` generates Groth16 proofs
+  - API endpoint: `GET /v1/proofs/{address}/sp1?mock=true` for proof generation
+  - `DormancyProof` struct extended with `proof_type`, `zk_proof`, `public_inputs` fields
+  - SP1DormancyVerifier contract: validates Groth16 proofs without trusted oracle key
+  - RewardDistributor.verifyAndMint(): trustless RESURGE minting (no DORMANCY_ORACLE_ROLE required)
+  - Integration tests: SP1 guest program, CLI, API, and full E2E workflow
+  - Ready for mainnet audit (eliminates trusted oracle key attack surface)
+  - Deployed on Arbitrum Sepolia for testing
+
+- **Live production pipeline (2026-05-24)**: ChronoNode dormancy scan timers (6h) → BaaLS `POST /api/v1/oracle/attest` → EVMSubmitter → `RewardDistributor.submitDormancyProof()` on Arbitrum Sepolia — fully verified ✅
+- **`evm_wallet` column + `--evm-wallet` CLI flag** added to `watch add`; required for EVMSubmitter routing
+- **28 BTC + 5 DOGE addresses** live on watch list with `evm_wallet` set to deployer `0x42060A5F...`
+- **CORS enabled** on ChronoNode HTTP API for browser-facing frontend calls
+- **`baals_tls_skip_verify`** config option + CoreConfig serde defaults fixed (was silently dropping attestation config)
+- **300ms inter-submission pacing** added to stay under BaaLS rate limiter
 - L1. Property-based tests (`proptest`) for Merkle/proof/signing invariants
 - L2. Criterion benchmark harness for Merkle root/proof generation/proof verification
 - L3. API rate limiter hardened with atomic token-bucket state + deterministic unit tests

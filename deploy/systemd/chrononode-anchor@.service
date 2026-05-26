@@ -1,0 +1,30 @@
+[Unit]
+Description=ChronoNode Checkpoint Anchor to Arweave (%i)
+Documentation=https://github.com/chrononode/chrononode
+After=network-online.target chrononode-ingest@%i.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=chrononode
+Group=chrononode
+Environment=CHRONONODE_DATA_DIR=/var/lib/chrononode
+Environment=CHRONONODE_STORAGE_BACKEND=local_fs
+
+ExecStart=/usr/local/bin/chrononode-cli checkpoint anchor --chain %i
+
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=chrononode-anchor-%i
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/chrononode
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

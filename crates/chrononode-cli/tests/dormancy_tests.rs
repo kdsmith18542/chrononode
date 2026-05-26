@@ -115,6 +115,9 @@ async fn test_dormancy_proof_sign_and_verify() {
         signer_pubkey: None,
         signature: None,
         evm_wallet: None,
+        proof_type: "ed25519".to_string(),
+        zk_proof: None,
+        public_inputs: None,
     };
 
     proof.sign(&keypair);
@@ -144,6 +147,9 @@ async fn test_dormancy_proof_no_keypair_fails_verify() {
         signer_pubkey: None,
         signature: None,
         evm_wallet: None,
+        proof_type: "ed25519".to_string(),
+        zk_proof: None,
+        public_inputs: None,
     };
     assert!(!proof.verify());
 }

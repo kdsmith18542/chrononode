@@ -111,6 +111,9 @@ async fn test_baals_submitter_submit_with_mock() {
         signer_pubkey: None,
         signature: None,
         evm_wallet: None,
+        proof_type: "ed25519".to_string(),
+        zk_proof: None,
+        public_inputs: None,
     };
 
     let result = submitter
@@ -154,6 +157,9 @@ async fn test_baals_submitter_idempotent() {
         signer_pubkey: None,
         signature: None,
         evm_wallet: None,
+        proof_type: "ed25519".to_string(),
+        zk_proof: None,
+        public_inputs: None,
     };
 
     let result = submitter
@@ -191,6 +197,9 @@ async fn test_baals_submitter_retry_on_500() {
         signer_pubkey: None,
         signature: None,
         evm_wallet: None,
+        proof_type: "ed25519".to_string(),
+        zk_proof: None,
+        public_inputs: None,
     };
 
     let result = submitter.submit_dormancy_proof(&proof, &index).await;

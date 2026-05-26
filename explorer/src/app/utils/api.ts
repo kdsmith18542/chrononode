@@ -37,7 +37,7 @@ export interface ChainInfo {
   display_name: string;
 }
 
-const API_BASE = 'http://localhost:8080';
+const API_BASE = process.env.NEXT_PUBLIC_CHRONONODE_API || 'http://localhost:8080';
 
 // Helper to generate a deterministic hex hash based on a string seed
 function makeHash(seed: string): string {
@@ -268,4 +268,35 @@ export async function fetchStats(chainId: string) {
     event_count: 124801,
     storage_size_bytes: 48920150
   };
+}
+
+export interface AttestationEntry {
+  chain_id: string;
+  address: string;
+  dormant_since_block: number;
+  baals_tx_hash: string | null;
+  status: string;
+  submitted_at: number | null;
+}
+
+export async function fetchAttestations(chainId: string): Promise<AttestationEntry[]> {
+  try {
+    const res = await fetch(`${API_BASE}/v1/attestations?chain_id=${encodeURIComponent(chainId)}`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (e) {
+    console.warn("REST API offline, using empty attestations: ", e);
+  }
+  return [];
+}
+
+export async function verifyProof(proofJson: string): Promise<{ valid: boolean; reason?: string }> {
+  const res = await fetch(`${API_BASE}/v1/proofs/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: proofJson,
+  });
+  const data = await res.json();
+  return data;
 }

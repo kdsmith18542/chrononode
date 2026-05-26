@@ -50,19 +50,31 @@ pub enum Commands {
         action: QueryAction,
     },
 
-    /// Generate a Merkle proof for a block
+    /// Generate a Merkle proof for a block, or a zkVM dormancy proof
     Prove {
         /// Chain identifier
         #[arg(long)]
         chain: String,
 
-        /// Block height
+        /// Block height (required for Merkle proof)
         #[arg(long)]
-        height: u64,
+        height: Option<u64>,
 
         /// Output file for proof JSON
         #[arg(long)]
         out: Option<String>,
+
+        /// ZKVM type to use (e.g. sp1)
+        #[arg(long)]
+        zkvm: Option<String>,
+
+        /// Address to generate dormancy proof for (required for zkVM proof)
+        #[arg(long)]
+        address: Option<String>,
+
+        /// Generate mock proof (fast execution, no cryptography)
+        #[arg(long, default_value_t = false)]
+        mock: bool,
     },
 
     /// Verify a proof file
@@ -199,19 +211,23 @@ pub enum CheckpointAction {
         to: u64,
     },
 
-    /// Anchor a checkpoint to an external chain
+    /// Anchor a checkpoint to an external chain or upload it to Arweave
     Anchor {
         /// Chain identifier (the chain the blocks belong to)
         #[arg(long)]
         chain: String,
 
-        /// Checkpoint ID (e.g., baals-0-999)
+        /// Checkpoint ID (e.g., baals-0-999). Required when using a manual tx_hash anchor.
         #[arg(long)]
-        id: String,
+        id: Option<String>,
 
-        /// Transaction hash on the anchor chain (hex)
+        /// Start height of the checkpoint to anchor via Arweave.
         #[arg(long)]
-        tx_hash: String,
+        height: Option<u64>,
+
+        /// Transaction hash on the anchor chain (hex) for manual anchor.
+        #[arg(long)]
+        tx_hash: Option<String>,
     },
 }
 

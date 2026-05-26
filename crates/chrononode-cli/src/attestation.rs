@@ -170,6 +170,9 @@ mod tests {
             signer_pubkey: None,
             signature: None,
             evm_wallet: None,
+            proof_type: "ed25519".to_string(),
+            zk_proof: None,
+            public_inputs: None,
         }
     }
 
