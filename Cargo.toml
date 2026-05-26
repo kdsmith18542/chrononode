@@ -11,6 +11,9 @@ members = [
     "crates/chrononode-adapter-ethereum",
     "crates/chrononode-cli",
     "crates/chrononode-sdk",
+]
+# SP1 guest program — builds only via `sp1 build` toolchain, not native cargo
+exclude = [
     "crates/chrononode-zkvm-program",
 ]
 resolver = "2"

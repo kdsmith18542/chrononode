@@ -1132,16 +1132,18 @@ async fn list_attestations(
 
     let entries: Vec<AttestationEntry> = rows
         .into_iter()
-        .map(|(address, dormant_since_block, baals_tx_hash, status, submitted_at)| {
-            AttestationEntry {
-                chain_id: chain_id.clone(),
-                address,
-                dormant_since_block,
-                baals_tx_hash,
-                status,
-                submitted_at,
-            }
-        })
+        .map(
+            |(address, dormant_since_block, baals_tx_hash, status, submitted_at)| {
+                AttestationEntry {
+                    chain_id: chain_id.clone(),
+                    address,
+                    dormant_since_block,
+                    baals_tx_hash,
+                    status,
+                    submitted_at,
+                }
+            },
+        )
         .collect();
 
     Ok(Json(entries))
