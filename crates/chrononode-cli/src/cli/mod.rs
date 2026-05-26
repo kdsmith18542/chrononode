@@ -211,19 +211,23 @@ pub enum CheckpointAction {
         to: u64,
     },
 
-    /// Anchor a checkpoint to an external chain
+    /// Anchor a checkpoint to an external chain or upload it to Arweave
     Anchor {
         /// Chain identifier (the chain the blocks belong to)
         #[arg(long)]
         chain: String,
 
-        /// Checkpoint ID (e.g., baals-0-999)
+        /// Checkpoint ID (e.g., baals-0-999). Required when using a manual tx_hash anchor.
         #[arg(long)]
-        id: String,
+        id: Option<String>,
 
-        /// Transaction hash on the anchor chain (hex)
+        /// Start height of the checkpoint to anchor via Arweave.
         #[arg(long)]
-        tx_hash: String,
+        height: Option<u64>,
+
+        /// Transaction hash on the anchor chain (hex) for manual anchor.
+        #[arg(long)]
+        tx_hash: Option<String>,
     },
 }
 

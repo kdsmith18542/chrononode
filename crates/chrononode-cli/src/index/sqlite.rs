@@ -121,6 +121,18 @@ impl SqliteIndex {
         .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
 
         sqlx::query(
+            "CREATE TABLE IF NOT EXISTS checkpoint_anchors (
+                chain_id TEXT NOT NULL,
+                height INTEGER NOT NULL,
+                arweave_tx_id TEXT NOT NULL,
+                PRIMARY KEY (chain_id, height)
+            )",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
             "CREATE TABLE IF NOT EXISTS storage_objects (
                 storage_pointer TEXT PRIMARY KEY,
                 storage_backend TEXT NOT NULL,
@@ -749,6 +761,58 @@ impl SqliteIndex {
             .await
             .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
         Ok(row)
+    }
+
+    pub async fn get_checkpoint_by_height(
+        &self,
+        chain_id: &str,
+        start_height: u64,
+    ) -> Result<Option<CheckpointRow>> {
+        let row: Option<CheckpointRow> = sqlx::query_as(
+            "SELECT checkpoint_id, chain_id, start_height, end_height, root_hash, signer_pubkey, signature
+                 FROM merkle_checkpoints WHERE chain_id = ? AND start_height = ?",
+        )
+        .bind(chain_id)
+        .bind(start_height as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(row)
+    }
+
+    pub async fn insert_checkpoint_anchor(
+        &self,
+        chain_id: &str,
+        height: u64,
+        arweave_tx_id: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT OR REPLACE INTO checkpoint_anchors (chain_id, height, arweave_tx_id)
+             VALUES (?, ?, ?)",
+        )
+        .bind(chain_id)
+        .bind(height as i64)
+        .bind(arweave_tx_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn get_checkpoint_anchor(
+        &self,
+        chain_id: &str,
+        height: u64,
+    ) -> Result<Option<String>> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT arweave_tx_id FROM checkpoint_anchors WHERE chain_id = ? AND height = ?",
+        )
+        .bind(chain_id)
+        .bind(height as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(row.map(|(tx_id,)| tx_id))
     }
 
     pub async fn get_latest_checkpoint(

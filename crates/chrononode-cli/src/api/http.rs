@@ -477,6 +477,13 @@ pub struct CheckpointResponse {
     pub signature: Option<String>,
 }
 
+#[derive(Serialize, ToSchema)]
+pub struct CheckpointAnchorResponse {
+    pub chain_id: String,
+    pub height: u64,
+    pub arweave_tx_id: String,
+}
+
 #[derive(Deserialize, ToSchema)]
 pub struct LimitQuery {
     pub limit: Option<u64>,
@@ -587,6 +594,35 @@ async fn get_checkpoint(
         root_hash: hex::encode(root),
         signer_pubkey: pubkey.map(hex::encode),
         signature: sig.map(hex::encode),
+    }))
+}
+
+async fn get_checkpoint_anchor(
+    State(state): State<Arc<ApiState>>,
+    Path((chain_id, height)): Path<(String, u64)>,
+) -> ApiResult<CheckpointAnchorResponse> {
+    state.metrics.increment_requests();
+    let pipeline = state.pipeline.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pipeline not initialized".to_string(),
+        )
+    })?;
+    let tx_id = pipeline
+        .index
+        .get_checkpoint_anchor(&chain_id, height)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                "checkpoint anchor not found".to_string(),
+            )
+        })?;
+    Ok(Json(CheckpointAnchorResponse {
+        chain_id,
+        height,
+        arweave_tx_id: tx_id,
     }))
 }
 
@@ -923,14 +959,20 @@ async fn get_sp1_proof(
     if current_block < dormant_since_block {
         return Err((
             StatusCode::BAD_REQUEST,
-            format!("Current block {} is less than dormant since block {}", current_block, dormant_since_block),
+            format!(
+                "Current block {} is less than dormant since block {}",
+                current_block, dormant_since_block
+            ),
         ));
     }
     let diff = current_block - dormant_since_block;
     if diff < threshold_blocks {
         return Err((
             StatusCode::BAD_REQUEST,
-            format!("Dormancy window ({} blocks) does not satisfy the threshold ({} blocks)", diff, threshold_blocks),
+            format!(
+                "Dormancy window ({} blocks) does not satisfy the threshold ({} blocks)",
+                diff, threshold_blocks
+            ),
         ));
     }
 
@@ -976,24 +1018,29 @@ async fn get_sp1_proof(
             blocks,
         };
 
-        let elf_path = std::env::var("CHRONONODE_SP1_ELF").unwrap_or_else(|_| {
-            let relative = "crates/chrononode-zkvm-program/target/elf-compilation/riscv64im-succinct-zkvm-elf/release/chrononode-zkvm-program";
-            if std::path::Path::new(relative).exists() {
-                relative.to_string()
-            } else {
-                "../chrononode-zkvm-program/target/elf-compilation/riscv64im-succinct-zkvm-elf/release/chrononode-zkvm-program".to_string()
-            }
-        });
-        let elf = std::fs::read(&elf_path).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to read SP1 ELF from {}: {}. Make sure to run `cargo prove build` in crates/chrononode-zkvm-program first.", elf_path, e),
-            )
-        })?;
-
         let mock = query.mock.unwrap_or(false);
-        let (zk_proof, public_inputs) = chrononode_core::zkvm::generate_sp1_proof(&elf, &input, mock)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+        let (zk_proof, public_inputs) = if mock {
+            chrononode_core::zkvm::generate_sp1_proof(&[], &input, true)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        } else {
+            let elf_path = std::env::var("CHRONONODE_SP1_ELF").unwrap_or_else(|_| {
+                let relative = "crates/chrononode-zkvm-program/target/elf-compilation/riscv64im-succinct-zkvm-elf/release/chrononode-zkvm-program";
+                if std::path::Path::new(relative).exists() {
+                    relative.to_string()
+                } else {
+                    "../chrononode-zkvm-program/target/elf-compilation/riscv64im-succinct-zkvm-elf/release/chrononode-zkvm-program".to_string()
+                }
+            });
+            let elf = std::fs::read(&elf_path).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to read SP1 ELF from {}: {}. Make sure to run `cargo prove build` in crates/chrononode-zkvm-program first.", elf_path, e),
+                )
+            })?;
+            chrononode_core::zkvm::generate_sp1_proof(&elf, &input, false)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        };
 
         let proof = chrononode_core::DormancyProof {
             version: "chrononode:dormancy:v1".to_string(),
@@ -1023,7 +1070,8 @@ async fn get_sp1_proof(
         let _ = blocks;
         Err((
             StatusCode::NOT_IMPLEMENTED,
-            "zkVM feature is not enabled. Build with --features zkvm to enable SP1 proving.".to_string(),
+            "zkVM feature is not enabled. Build with --features zkvm to enable SP1 proving."
+                .to_string(),
         ))
     }
 }
@@ -1040,6 +1088,63 @@ pub struct AttestationSubmitResponse {
     pub status: String,
     pub tx_hash: Option<String>,
     pub message: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct AttestationEntry {
+    pub chain_id: String,
+    pub address: String,
+    pub dormant_since_block: i64,
+    pub baals_tx_hash: Option<String>,
+    pub status: String,
+    pub submitted_at: Option<i64>,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct AttestationListQuery {
+    pub chain_id: Option<String>,
+}
+
+async fn list_attestations(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<AttestationListQuery>,
+) -> ApiResult<Vec<AttestationEntry>> {
+    state.metrics.increment_requests();
+    let pipeline = state.pipeline.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pipeline not initialized".to_string(),
+        )
+    })?;
+
+    let chain_id = query.chain_id.ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            "chain_id query parameter is required".to_string(),
+        )
+    })?;
+
+    let rows = pipeline
+        .index
+        .list_attestations(&chain_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let entries: Vec<AttestationEntry> = rows
+        .into_iter()
+        .map(|(address, dormant_since_block, baals_tx_hash, status, submitted_at)| {
+            AttestationEntry {
+                chain_id: chain_id.clone(),
+                address,
+                dormant_since_block,
+                baals_tx_hash,
+                status,
+                submitted_at,
+            }
+        })
+        .collect();
+
+    Ok(Json(entries))
 }
 
 async fn submit_attestation(
@@ -1251,6 +1356,10 @@ pub fn build_router(state: Arc<ApiState>) -> Router {
             get(get_block_proof),
         )
         .route("/v1/checkpoints/{checkpoint_id}", get(get_checkpoint))
+        .route(
+            "/v1/chains/{chain_id}/checkpoints/{height}/anchor",
+            get(get_checkpoint_anchor),
+        )
         .route("/v1/chains/{chain_id}/checkpoints", post(create_checkpoint))
         .route("/v1/proofs/verify", post(verify_proof_endpoint))
         .route("/v1/proofs/{address}/sp1", get(get_sp1_proof))
@@ -1285,6 +1394,7 @@ pub fn build_router(state: Arc<ApiState>) -> Router {
             get(get_dormancy_proof),
         )
         .route("/v1/attestations/submit", post(submit_attestation))
+        .route("/v1/attestations", get(list_attestations))
         .route("/metrics", get(metrics_prometheus))
         .route(
             "/graphql",

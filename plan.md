@@ -193,11 +193,11 @@ already exist in SQLite — this phase publishes them to Arweave.
 
 | # | Task | Status |
 |---|------|--------|
-| 8.1 | Add `ArweaveAnchor` backend to `StorageBackend` trait — wraps Irys SDK HTTP API | ⏳ |
-| 8.2 | CLI: `chrononode checkpoint anchor --chain bitcoin --height <n>` — uploads checkpoint JSON + Merkle root to Arweave via Irys | ⏳ |
-| 8.3 | Store Arweave TX IDs in SQLite `checkpoint_anchors(chain_id, height, arweave_tx_id)` table | ⏳ |
-| 8.4 | REST: `GET /v1/chains/{chain_id}/checkpoints/{height}/anchor` — returns Arweave TX ID for external verification | ⏳ |
-| 8.5 | Scheduled anchor: systemd timer `chrononode-anchor@bitcoin.timer` runs weekly | ⏳ |
+| 8.1 | Add `ArweaveAnchor` backend to `StorageBackend` trait — wraps Irys SDK HTTP API | ✅ |
+| 8.2 | CLI: `chrononode checkpoint anchor --chain bitcoin --height <n>` — uploads checkpoint JSON + Merkle root to Arweave via Irys | ✅ |
+| 8.3 | Store Arweave TX IDs in SQLite `checkpoint_anchors(chain_id, height, arweave_tx_id)` table | ✅ |
+| 8.4 | REST: `GET /v1/chains/{chain_id}/checkpoints/{height}/anchor` — returns Arweave TX ID for external verification | ✅ |
+| 8.5 | Scheduled anchor: systemd timer `chrononode-anchor@bitcoin.timer` runs weekly | ✅ `chrononode-anchor@.service` + `chrononode-anchor@.timer` with idempotency skip |
 
 ---
 
@@ -214,7 +214,15 @@ cargo test --all-features
 ## Remaining Work (Current)
 
 Open work:
-- Phase 8 (Arweave checkpoint anchoring — Irys upload, SQLite anchor store)
+- (none — all phases complete)
+
+Recently completed (2026-05-25):
+- **Phase 8.5 Complete**: systemd timer `chrononode-anchor@.timer` for weekly Arweave checkpoint anchoring
+  - `chrononode-anchor@.service` — oneshot service that anchors the latest checkpoint
+  - `chrononode-anchor@.timer` — weekly `OnCalendar` trigger with `Persistent=true`
+  - Idempotent: skips anchoring if the latest checkpoint's start height already has an Arweave TX recorded
+  - `cmd_checkpoint_anchor` refactored to support three modes: manual (--id + --tx_hash), specific height (--height), and latest (no flags)
+  - Deploy README updated with anchor service/timer instructions
 
 Recently completed (2026-05-25):
 - **Phase 7 COMPLETE**: SP1 Groth16 zkVM proof mode for trustless dormancy verification

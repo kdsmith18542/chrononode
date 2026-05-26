@@ -784,7 +784,7 @@ async fn test_api_list_chains_pagination() {
 #[tokio::test]
 async fn test_api_get_sp1_proof() {
     let (pipeline, _dir) = setup_test_state().await;
-    
+
     let address = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".to_string();
     pipeline
         .index
@@ -796,7 +796,7 @@ async fn test_api_get_sp1_proof() {
         .set_dormant("mock", &address, 0, 1, 4)
         .await
         .unwrap();
-        
+
     let state = Arc::new(ApiState {
         pipeline: Some(pipeline),
         metrics: ApiMetrics::new(),
@@ -805,13 +805,13 @@ async fn test_api_get_sp1_proof() {
         operator_keypair: None,
     });
     let app = build_router(state);
-    
+
     let uri = format!("/v1/proofs/{}/sp1?mock=true", address);
     let response = app
         .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
         .await
         .unwrap();
-        
+
     #[cfg(feature = "zkvm")]
     {
         assert_eq!(response.status(), StatusCode::OK);

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { verifyProof } from '../../utils/api';
 
 export default function VerifyPage() {
   const [proofJson, setProofJson] = useState('');
@@ -9,7 +10,7 @@ export default function VerifyPage() {
   const [status, setStatus] = useState<'idle' | 'verified' | 'failed'>('idle');
   const [logs, setLogs] = useState<string[]>([]);
 
-  const runVerification = (e: React.FormEvent) => {
+  const runVerification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!proofJson.trim()) return;
 
@@ -20,29 +21,34 @@ export default function VerifyPage() {
       'Extracting public inputs: chain_id, block_height, state_root...',
     ]);
 
-    setTimeout(() => {
-      setLogs(prev => [...prev, 'Fetching verification key from registry...', 'Mapping leaf nodes to root checkpoint...']);
-      
-      setTimeout(() => {
-        let isSuccess = true;
+    try {
+      let valid = false;
+      let reason = '';
+
+      try {
+        const result = await verifyProof(proofJson);
+        valid = result.valid;
+        reason = result.reason || '';
+        setLogs(prev => [...prev, 'Cryptographic proof submitted to ChronoNode verifier.', `${valid ? '✅ Verification successful' : '❌ Verification failed'}: ${reason || '(no reason provided)'}`]);
+      } catch {
+        // API offline — fall back to client-side structure check
         try {
           const parsed = JSON.parse(proofJson);
-          if (!parsed.proof_bytes || !parsed.public_inputs) {
-            isSuccess = false;
-          }
+          valid = !!(parsed.proof_bytes && parsed.public_inputs);
+          reason = valid ? 'Client-side structure check passed (API offline)' : 'Missing required proof fields';
         } catch {
-          isSuccess = false;
+          reason = 'Invalid JSON structure';
         }
+        setLogs(prev => [...prev, 'ChronoNode API offline — ran client-side structure check.', `${valid ? '✅ Structure valid' : '❌ Structure invalid'}: ${reason}`]);
+      }
 
-        setLogs(prev => [
-          ...prev,
-          isSuccess ? 'Cryptographic proof verified against root.' : 'Signature verification mismatch.',
-          isSuccess ? 'Verification successful!' : 'Verification failed: invalid payload structure.'
-        ]);
-        setStatus(isSuccess ? 'verified' : 'failed');
-        setVerifying(false);
-      }, 1000);
-    }, 800);
+      setStatus(valid ? 'verified' : 'failed');
+    } catch (err: any) {
+      setLogs(prev => [...prev, `Error: ${err.message || 'Unknown error'}`]);
+      setStatus('failed');
+    }
+
+    setVerifying(false);
   };
 
   const loadExample = () => {

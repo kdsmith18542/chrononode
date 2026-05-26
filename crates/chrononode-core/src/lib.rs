@@ -8,7 +8,6 @@ pub mod signing;
 #[cfg(feature = "zkvm")]
 pub mod zkvm;
 
-
 pub use block::{ChronoBlock, ChronoEvent, ChronoTx};
 pub use chain::{BlockModel, ChainAdapter, StorageBackend, StorageHealth, StoragePointer};
 pub use config::{

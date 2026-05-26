@@ -110,6 +110,7 @@ export default function Navbar() {
             <Link href="/proofs/chains" style={styles.navLink}>Chains</Link>
             <Link href="/proofs/verify" style={styles.navLink}>Verify Proofs</Link>
             <Link href="/proofs/attestations" style={styles.navLink}>Attestations</Link>
+            <a href="https://baals.network#explorer" target="_blank" rel="noopener noreferrer" style={styles.navLink}>BaaLS Explorer ↗</a>
           </div>
 
           {/* Chain Selector */}

@@ -45,8 +45,7 @@ pub fn main() {
     // Verify contiguous block chain validation
     if !input.blocks.is_empty() {
         assert_eq!(
-            input.blocks[0].height,
-            input.dormant_since_block,
+            input.blocks[0].height, input.dormant_since_block,
             "First block height must match dormant_since_block"
         );
         assert_eq!(

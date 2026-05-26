@@ -25,7 +25,7 @@ pub struct DormancyProof {
     pub evm_wallet: Option<String>,
     #[serde(default = "default_proof_type")]
     pub proof_type: String, // "ed25519" or "sp1_groth16"
-    pub zk_proof: Option<String>, // Hex-encoded SP1 Groth16 proof
+    pub zk_proof: Option<String>,      // Hex-encoded SP1 Groth16 proof
     pub public_inputs: Option<String>, // Hex-encoded public inputs/commitments
 }
 

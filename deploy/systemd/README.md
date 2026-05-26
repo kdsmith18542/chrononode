@@ -1,9 +1,10 @@
 # Systemd Deployment
 
-These units run ChronoNode as two services per chain:
+These units run ChronoNode as services per chain:
 
 - `chrononode-ingest@<chain>.service`
 - `chrononode-api@<chain>.service`
+- `chrononode-anchor@<chain>.timer` — weekly Arweave checkpoint anchoring
 
 Example chain IDs:
 - `mock`
@@ -51,6 +52,8 @@ sudo chmod 0640 /etc/chrononode/config.toml
 # Units
 sudo cp deploy/systemd/chrononode-ingest@.service /etc/systemd/system/
 sudo cp deploy/systemd/chrononode-api@.service /etc/systemd/system/
+sudo cp deploy/systemd/chrononode-anchor@.service /etc/systemd/system/
+sudo cp deploy/systemd/chrononode-anchor@.timer /etc/systemd/system/
 sudo cp deploy/systemd/chrononode.target /etc/systemd/system/
 sudo systemctl daemon-reload
 
@@ -59,6 +62,8 @@ sudo systemctl enable --now chrononode-ingest@baals.service
 sudo systemctl enable --now chrononode-ingest@bitcoin-light.service
 sudo systemctl enable --now chrononode-ingest@dogecoin.service
 sudo systemctl enable --now chrononode.service
+sudo systemctl enable --now chrononode-anchor@bitcoin-light.timer
+sudo systemctl enable --now chrononode-anchor@dogecoin.timer
 ```
 
 ## Operations
@@ -68,8 +73,10 @@ sudo systemctl status chrononode-ingest@baals.service
 sudo systemctl status chrononode-ingest@bitcoin-light.service
 sudo systemctl status chrononode-ingest@dogecoin.service
 sudo systemctl status chrononode.service
+sudo systemctl status chrononode-anchor@bitcoin-light.timer
 sudo journalctl -u chrononode-ingest@baals.service -f
 sudo journalctl -u chrononode.service -f
+sudo journalctl -u chrononode-anchor@bitcoin-light.service -f
 ```
 
 ## Data paths

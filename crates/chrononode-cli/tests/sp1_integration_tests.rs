@@ -1,7 +1,7 @@
 /// Integration tests for SP1 Groth16 dormancy proof generation workflow
 #[cfg(all(test, feature = "zkvm"))]
 mod sp1_dormancy_tests {
-    use chrononode_core::zkvm::{BlockSummary, GuestInput, TxSummary, bytes_to_address};
+    use chrononode_core::zkvm::{bytes_to_address, BlockSummary, GuestInput, TxSummary};
     use chrononode_core::DormancyProof;
 
     /// Test data: Simple dormancy chain with no activity
@@ -35,6 +35,7 @@ mod sp1_dormancy_tests {
     }
 
     /// Test data: Blocks with activity from target address
+    #[allow(dead_code)]
     fn create_blocks_with_activity() -> Vec<BlockSummary> {
         let dormant_addr = "1A1z7agoat";
         vec![
@@ -91,10 +92,10 @@ mod sp1_dormancy_tests {
 
     #[test]
     fn test_bytes_to_address_ethereum() {
-        let eth_addr_bytes = hex::decode("0x201624cBa366250D08bCdA95e6eF64151687A447")
-            .expect("decode failed");
+        let eth_addr_bytes =
+            hex::decode("201624cBa366250D08bCdA95e6eF64151687A447").expect("decode failed");
         let result = bytes_to_address("ethereum", &eth_addr_bytes);
-        assert!(result.starts_with("0x") || result.len() > 0);
+        assert!(!result.is_empty());
     }
 
     #[test]
@@ -148,7 +149,7 @@ mod sp1_dormancy_tests {
         assert!(diff >= 100);
 
         // Dormancy not satisfied
-        let diff_insufficient = 1000u64 - 900u64;
+        let diff_insufficient = 1000u64 - 901u64;
         assert!(diff_insufficient < 100);
     }
 

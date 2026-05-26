@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly ChronoNode Arweave Checkpoint Anchor Timer for %i
+Documentation=https://github.com/chrononode/chrononode
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+
+[Install]
+WantedBy=timers.target

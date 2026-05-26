@@ -110,6 +110,21 @@ pub trait IndexBackend: Send + Sync {
 
     async fn get_checkpoint(&self, checkpoint_id: &str) -> Result<Option<CheckpointRow>>;
 
+    async fn get_checkpoint_by_height(
+        &self,
+        chain_id: &str,
+        start_height: u64,
+    ) -> Result<Option<CheckpointRow>>;
+
+    async fn insert_checkpoint_anchor(
+        &self,
+        chain_id: &str,
+        height: u64,
+        arweave_tx_id: &str,
+    ) -> Result<()>;
+
+    async fn get_checkpoint_anchor(&self, chain_id: &str, height: u64) -> Result<Option<String>>;
+
     async fn get_latest_checkpoint(&self, chain_id: &str) -> Result<Option<LatestCheckpointRow>>;
 
     async fn archive_block_atomic(
@@ -381,6 +396,27 @@ impl IndexBackend for SqliteIndex {
 
     async fn get_checkpoint(&self, checkpoint_id: &str) -> Result<Option<CheckpointRow>> {
         SqliteIndex::get_checkpoint(self, checkpoint_id).await
+    }
+
+    async fn get_checkpoint_by_height(
+        &self,
+        chain_id: &str,
+        start_height: u64,
+    ) -> Result<Option<CheckpointRow>> {
+        SqliteIndex::get_checkpoint_by_height(self, chain_id, start_height).await
+    }
+
+    async fn insert_checkpoint_anchor(
+        &self,
+        chain_id: &str,
+        height: u64,
+        arweave_tx_id: &str,
+    ) -> Result<()> {
+        SqliteIndex::insert_checkpoint_anchor(self, chain_id, height, arweave_tx_id).await
+    }
+
+    async fn get_checkpoint_anchor(&self, chain_id: &str, height: u64) -> Result<Option<String>> {
+        SqliteIndex::get_checkpoint_anchor(self, chain_id, height).await
     }
 
     async fn get_latest_checkpoint(&self, chain_id: &str) -> Result<Option<LatestCheckpointRow>> {
@@ -697,6 +733,27 @@ impl IndexBackend for PostgresIndex {
 
     async fn get_checkpoint(&self, checkpoint_id: &str) -> Result<Option<CheckpointRow>> {
         PostgresIndex::get_checkpoint(self, checkpoint_id).await
+    }
+
+    async fn get_checkpoint_by_height(
+        &self,
+        chain_id: &str,
+        start_height: u64,
+    ) -> Result<Option<CheckpointRow>> {
+        PostgresIndex::get_checkpoint_by_height(self, chain_id, start_height).await
+    }
+
+    async fn insert_checkpoint_anchor(
+        &self,
+        chain_id: &str,
+        height: u64,
+        arweave_tx_id: &str,
+    ) -> Result<()> {
+        PostgresIndex::insert_checkpoint_anchor(self, chain_id, height, arweave_tx_id).await
+    }
+
+    async fn get_checkpoint_anchor(&self, chain_id: &str, height: u64) -> Result<Option<String>> {
+        PostgresIndex::get_checkpoint_anchor(self, chain_id, height).await
     }
 
     async fn get_latest_checkpoint(&self, chain_id: &str) -> Result<Option<LatestCheckpointRow>> {

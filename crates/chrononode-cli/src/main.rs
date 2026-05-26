@@ -66,12 +66,17 @@ async fn main() -> anyhow::Result<()> {
         } => {
             if let Some(zkvm_type) = zkvm {
                 if zkvm_type != "sp1" {
-                    anyhow::bail!("Unsupported zkVM type: {}. Only 'sp1' is supported.", zkvm_type);
+                    anyhow::bail!(
+                        "Unsupported zkVM type: {}. Only 'sp1' is supported.",
+                        zkvm_type
+                    );
                 }
-                let addr = address.ok_or_else(|| anyhow::anyhow!("--address is required for zkVM proof mode"))?;
+                let addr = address
+                    .ok_or_else(|| anyhow::anyhow!("--address is required for zkVM proof mode"))?;
                 cmd_prove_zkvm(&chain, &addr, mock, out.as_deref()).await?
             } else {
-                let h = height.ok_or_else(|| anyhow::anyhow!("--height is required for Merkle proof mode"))?;
+                let h = height
+                    .ok_or_else(|| anyhow::anyhow!("--height is required for Merkle proof mode"))?;
                 cmd_prove(&chain, h, out.as_deref()).await?
             }
         }
@@ -93,9 +98,12 @@ async fn main() -> anyhow::Result<()> {
             CheckpointAction::Create { chain, from, to } => {
                 cmd_checkpoint_create(&chain, from, to).await?
             }
-            CheckpointAction::Anchor { chain, id, tx_hash } => {
-                cmd_checkpoint_anchor(&chain, &id, &tx_hash).await?
-            }
+            CheckpointAction::Anchor {
+                chain,
+                id,
+                height,
+                tx_hash,
+            } => cmd_checkpoint_anchor(&chain, id.as_deref(), height, tx_hash.as_deref()).await?,
         },
         Commands::ExportCheckpoint { id, out } => {
             cmd_export_checkpoint(&id, out.as_deref()).await?
@@ -594,19 +602,37 @@ async fn cmd_prove_zkvm(
         .index
         .get_dormancy_status(chain, address)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("Address {} is not marked as dormant on chain {}", address, chain))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Address {} is not marked as dormant on chain {}",
+                address,
+                chain
+            )
+        })?;
     let current_block = pipeline
         .latest_archived_height(chain)
         .await?
         .ok_or_else(|| anyhow::anyhow!("No blocks archived for chain {}", chain))?;
     if current_block < dormant_since_block {
-        anyhow::bail!("Current block {} is less than dormant since block {}", current_block, dormant_since_block);
+        anyhow::bail!(
+            "Current block {} is less than dormant since block {}",
+            current_block,
+            dormant_since_block
+        );
     }
     let diff = current_block - dormant_since_block;
     if diff < threshold_blocks {
-        anyhow::bail!("Dormancy window ({} blocks) does not satisfy the threshold ({} blocks)", diff, threshold_blocks);
+        anyhow::bail!(
+            "Dormancy window ({} blocks) does not satisfy the threshold ({} blocks)",
+            diff,
+            threshold_blocks
+        );
     }
-    tracing::info!("Fetching blocks {} to {} from storage...", dormant_since_block, current_block);
+    tracing::info!(
+        "Fetching blocks {} to {} from storage...",
+        dormant_since_block,
+        current_block
+    );
     #[cfg(feature = "zkvm")]
     let mut blocks: Vec<chrononode_core::zkvm::BlockSummary> = Vec::new();
     #[cfg(not(feature = "zkvm"))]
@@ -642,20 +668,26 @@ async fn cmd_prove_zkvm(
             threshold_blocks,
             blocks,
         };
-        let elf_path = std::env::var("CHRONONODE_SP1_ELF").unwrap_or_else(|_| {
-            let relative = "crates/chrononode-zkvm-program/target/elf-compilation/riscv64im-succinct-zkvm-elf/release/chrononode-zkvm-program";
-            if std::path::Path::new(relative).exists() {
-                relative.to_string()
-            } else {
-                "../chrononode-zkvm-program/target/elf-compilation/riscv64im-succinct-zkvm-elf/release/chrononode-zkvm-program".to_string()
-            }
-        });
-        let elf = std::fs::read(&elf_path).map_err(|e| {
-            anyhow::anyhow!("Failed to read SP1 ELF from {}: {}. Make sure to run `cargo prove build` in crates/chrononode-zkvm-program first.", elf_path, e)
-        })?;
-        tracing::info!("Running SP1 prover (mock: {})...", mock);
-        let (zk_proof, public_inputs) = chrononode_core::zkvm::generate_sp1_proof(&elf, &input, mock)
-            .map_err(|e| anyhow::anyhow!("Failed to generate SP1 proof: {}", e))?;
+
+        let (zk_proof, public_inputs) = if mock {
+            chrononode_core::zkvm::generate_sp1_proof(&[], &input, true)
+                .map_err(|e| anyhow::anyhow!("Failed to generate SP1 proof: {}", e))?
+        } else {
+            let elf_path = std::env::var("CHRONONODE_SP1_ELF").unwrap_or_else(|_| {
+                let relative = "crates/chrononode-zkvm-program/target/elf-compilation/riscv64im-succinct-zkvm-elf/release/chrononode-zkvm-program";
+                if std::path::Path::new(relative).exists() {
+                    relative.to_string()
+                } else {
+                    "../chrononode-zkvm-program/target/elf-compilation/riscv64im-succinct-zkvm-elf/release/chrononode-zkvm-program".to_string()
+                }
+            });
+            let elf = std::fs::read(&elf_path).map_err(|e| {
+                anyhow::anyhow!("Failed to read SP1 ELF from {}: {}. Make sure to run `cargo prove build` in crates/chrononode-zkvm-program first.", elf_path, e)
+            })?;
+            tracing::info!("Running SP1 prover...");
+            chrononode_core::zkvm::generate_sp1_proof(&elf, &input, false)
+                .map_err(|e| anyhow::anyhow!("Failed to generate SP1 proof: {}", e))?
+        };
         let proof = DormancyProof {
             version: "chrononode:dormancy:v1".to_string(),
             chain_id: chain.to_string(),
@@ -681,7 +713,9 @@ async fn cmd_prove_zkvm(
     {
         let _ = mock;
         let _ = out;
-        anyhow::bail!("zkVM feature is not enabled. Build with --features zkvm to enable SP1 proving.");
+        anyhow::bail!(
+            "zkVM feature is not enabled. Build with --features zkvm to enable SP1 proving."
+        );
     }
 }
 
@@ -1271,28 +1305,127 @@ async fn cmd_checkpoint_create(chain: &str, from: u64, to: u64) -> anyhow::Resul
     Ok(())
 }
 
-async fn cmd_checkpoint_anchor(chain: &str, id: &str, tx_hash_hex: &str) -> anyhow::Result<()> {
-    let tx_hash_bytes: [u8; 32] = hex::decode(tx_hash_hex)
-        .map_err(|_| anyhow::anyhow!("invalid tx_hash hex: must be 64 hex chars"))?
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("tx_hash must be exactly 32 bytes (64 hex chars)"))?;
-
+async fn cmd_checkpoint_anchor(
+    chain: &str,
+    id: Option<&str>,
+    height: Option<u64>,
+    tx_hash_hex: Option<&str>,
+) -> anyhow::Result<()> {
     let pipeline = build_pipeline(chain, None).await?;
+
+    // Mode 1: Manual anchor (--id + --tx_hash)
+    if let (Some(id), Some(tx_hash_hex)) = (id, tx_hash_hex) {
+        let tx_hash_bytes: [u8; 32] = hex::decode(tx_hash_hex)
+            .map_err(|_| anyhow::anyhow!("invalid tx_hash hex: must be 64 hex chars"))?
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("tx_hash must be exactly 32 bytes (64 hex chars)"))?;
+
+        pipeline
+            .index
+            .anchor_checkpoint(id, chain, &tx_hash_bytes)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to anchor checkpoint: {}", e))?;
+
+        tracing::info!(
+            "Anchored checkpoint {} to {} with tx_hash {}",
+            id,
+            chain,
+            tx_hash_hex
+        );
+        println!("Checkpoint {} anchored successfully", id);
+        println!("Anchor chain: {}", chain);
+        println!("Anchor tx_hash: {}", tx_hash_hex);
+        return Ok(());
+    }
+
+    // Mode 2/3: Upload to Arweave — resolve checkpoint by height or latest
+    let (checkpoint_id, start_height, end_height, root_hash, signer_pubkey, signature) =
+        if let Some(h) = height {
+            // Mode 2: Anchor by specific height
+            let row = pipeline
+                .index
+                .get_checkpoint_by_height(chain, h)
+                .await?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Checkpoint not found for chain {} at height {}", chain, h)
+                })?;
+            (row.0, row.2 as u64, row.3, row.4, row.5, row.6)
+        } else {
+            // Mode 3: Anchor latest checkpoint (timer mode)
+            let latest = pipeline
+                .index
+                .get_latest_checkpoint(chain)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("No checkpoints found for chain {}", chain))?;
+            (
+                latest.0,
+                latest.1 as u64,
+                latest.2,
+                latest.3,
+                latest.4,
+                latest.5,
+            )
+        };
+
+    // Idempotency: skip if this checkpoint is already anchored
+    if let Some(tx_id) = pipeline
+        .index
+        .get_checkpoint_anchor(chain, start_height)
+        .await?
+    {
+        tracing::info!(
+            "Checkpoint {} (height {}) already anchored to Arweave tx {}",
+            checkpoint_id,
+            start_height,
+            tx_id
+        );
+        println!(
+            "Checkpoint {} already anchored to Arweave (TX: {})",
+            checkpoint_id, tx_id
+        );
+        return Ok(());
+    }
+
+    let checkpoint_json = serde_json::json!({
+        "version": "chrononode-checkpoint-v1",
+        "checkpoint_id": checkpoint_id,
+        "chain_id": chain,
+        "start_height": start_height,
+        "end_height": end_height,
+        "root_hash": hex::encode(&root_hash),
+        "signer_pubkey": signer_pubkey.map(hex::encode),
+        "signature": signature.map(hex::encode),
+        "exported_at": chrono::Utc::now().to_rfc3339(),
+    });
+    let bytes = serde_json::to_vec(&checkpoint_json)?;
+
+    let data_dir = data_dir_for(chain);
+    let backend_config = BackendConfig::from_env(data_dir.to_str().unwrap());
+    let arweave_backend = create_backend(BackendKind::Arweave, &backend_config);
+    let pointer = arweave_backend.put(&bytes).await?;
+
+    let txid = pointer
+        .key
+        .split_once(':')
+        .map(|(_, v)| v)
+        .ok_or_else(|| anyhow::anyhow!("invalid Arweave pointer returned: {}", pointer.key))?;
+
     pipeline
         .index
-        .anchor_checkpoint(id, chain, &tx_hash_bytes)
+        .insert_checkpoint_anchor(chain, start_height, txid)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to anchor checkpoint: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to store checkpoint anchor: {}", e))?;
 
     tracing::info!(
-        "Anchored checkpoint {} to {} with tx_hash {}",
-        id,
-        chain,
-        tx_hash_hex
+        "Uploaded checkpoint {} to Arweave tx {}",
+        checkpoint_id,
+        txid
     );
-    println!("Checkpoint {} anchored successfully", id);
-    println!("Anchor chain: {}", chain);
-    println!("Anchor tx_hash: {}", tx_hash_hex);
+    println!(
+        "Checkpoint {} anchored to Arweave successfully",
+        checkpoint_id
+    );
+    println!("Arweave TX ID: {}", txid);
     Ok(())
 }
 
