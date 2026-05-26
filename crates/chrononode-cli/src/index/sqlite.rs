@@ -951,6 +951,16 @@ impl SqliteIndex {
         }
 
         sqlx::query(
+            "INSERT OR IGNORE INTO chains (chain_id, display_name, adapter_type, block_model, created_at)
+             VALUES (?, 'unknown', 'unknown', 'unknown', ?)",
+        )
+        .bind(block.chain_id)
+        .bind(chrono::Utc::now().timestamp())
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
             "INSERT OR REPLACE INTO ingest_state (chain_id, latest_archived_height, latest_checked_height, updated_at)
              VALUES (?, ?, ?, ?)",
         )
