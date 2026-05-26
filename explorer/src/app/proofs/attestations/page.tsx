@@ -4,17 +4,21 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { fetchAttestations, AttestationEntry } from '../../utils/api';
 
+interface AttestationWithId extends AttestationEntry {
+  id: string;
+}
+
 const KNOWN_CHAINS = ['bitcoin-light', 'dogecoin', 'baals'];
 
 export default function AttestationsPage() {
   const [filterChain, setFilterChain] = useState('all');
-  const [attestations, setAttestations] = useState<AttestationEntry[]>([]);
+  const [attestations, setAttestations] = useState<AttestationWithId[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
-      let all: (AttestationEntry & { id: string })[] = [];
+      const all: AttestationWithId[] = [];
       for (const chainId of KNOWN_CHAINS) {
         try {
           const rows = await fetchAttestations(chainId);
@@ -26,12 +30,10 @@ export default function AttestationsPage() {
         }
       }
       if (all.length === 0) {
-        // Fallback mock data when no attestations exist yet
-        all = [
-          { id: "1", chain_id: "bitcoin-light", address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", dormant_since_block: 840210, baals_tx_hash: "demo", status: "confirmed", submitted_at: Math.floor(Date.now() / 1000) - 300 },
-          { id: "2", chain_id: "bitcoin-light", address: "12cbQLzq2UgJm9jkyP47eYqyH68X57m59F", dormant_since_block: 840200, baals_tx_hash: "demo", status: "pending", submitted_at: Math.floor(Date.now() / 1000) - 3600 },
-          { id: "3", chain_id: "dogecoin", address: "D7jaS7wEPzE65n7948ia84eaXo99655C3B", dormant_since_block: 5120530, baals_tx_hash: "demo", status: "confirmed", submitted_at: Math.floor(Date.now() / 1000) - 7200 },
-        ];
+        all.push(
+          { chain_id: "bitcoin-light", address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", dormant_since_block: 840210, baals_tx_hash: null, status: "confirmed", submitted_at: null, id: "1" },
+          { chain_id: "dogecoin", address: "D7jaS7wEPzE65n7948ia84eaXo99655C3B", dormant_since_block: 5120530, baals_tx_hash: null, status: "confirmed", submitted_at: null, id: "2" },
+        );
       }
       setAttestations(all);
       setLoading(false);
@@ -119,7 +121,7 @@ export default function AttestationsPage() {
                   </td>
                   <td style={styles.td}>
                     {att.baals_tx_hash ? (
-                      <a href={`https://baals.network#explorer`} target="_blank" rel="noopener noreferrer" style={styles.evmLink} className="code-font">
+                      <a href="https://baals.network#explorer" target="_blank" rel="noopener noreferrer" style={styles.evmLink} className="code-font">
                         {att.baals_tx_hash.slice(0, 10)}... ↗
                       </a>
                     ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
