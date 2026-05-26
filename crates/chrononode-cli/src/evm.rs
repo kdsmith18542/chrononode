@@ -396,6 +396,9 @@ mod tests {
             signer_pubkey: Some("ab".repeat(32)),
             signature: Some("cd".repeat(64)),
             evm_wallet: None,
+            proof_type: "ed25519".to_string(),
+            zk_proof: None,
+            public_inputs: None,
         }
     }
 

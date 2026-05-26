@@ -50,19 +50,31 @@ pub enum Commands {
         action: QueryAction,
     },
 
-    /// Generate a Merkle proof for a block
+    /// Generate a Merkle proof for a block, or a zkVM dormancy proof
     Prove {
         /// Chain identifier
         #[arg(long)]
         chain: String,
 
-        /// Block height
+        /// Block height (required for Merkle proof)
         #[arg(long)]
-        height: u64,
+        height: Option<u64>,
 
         /// Output file for proof JSON
         #[arg(long)]
         out: Option<String>,
+
+        /// ZKVM type to use (e.g. sp1)
+        #[arg(long)]
+        zkvm: Option<String>,
+
+        /// Address to generate dormancy proof for (required for zkVM proof)
+        #[arg(long)]
+        address: Option<String>,
+
+        /// Generate mock proof (fast execution, no cryptography)
+        #[arg(long, default_value_t = false)]
+        mock: bool,
     },
 
     /// Verify a proof file

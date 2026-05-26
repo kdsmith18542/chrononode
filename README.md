@@ -1,5 +1,9 @@
 # ChronoNode
 
+<p align="center">
+  <img src="chrononodelogo.png" alt="ChronoNode Logo" width="360" />
+</p>
+
 ChronoNode is an independent verifiable archival layer for blockchain and app-ledger history.
 
 It archives blocks and events from supported networks into content-addressed storage, stores compact metadata locally, and serves historical queries with Merkle proofs.

@@ -11,6 +11,7 @@ members = [
     "crates/chrononode-adapter-ethereum",
     "crates/chrononode-cli",
     "crates/chrononode-sdk",
+    "crates/chrononode-zkvm-program",
 ]
 resolver = "2"
 

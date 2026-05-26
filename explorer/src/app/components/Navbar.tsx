@@ -97,13 +97,20 @@ export default function Navbar() {
       <nav style={styles.nav} className="glass-panel">
         <div style={styles.navContent}>
           {/* Logo */}
-          <Link href="/" style={styles.logoContainer}>
+          <Link href="/proofs" style={styles.logoContainer}>
             <div style={styles.logoIcon}>C</div>
             <span style={styles.logoText}>
               Chrono<span style={{color: 'var(--accent-blue)'}}>Node</span>
             </span>
             <span style={styles.logoBadge}>Alpha</span>
           </Link>
+
+          {/* Nav Links */}
+          <div style={styles.navLinks}>
+            <Link href="/proofs/chains" style={styles.navLink}>Chains</Link>
+            <Link href="/proofs/verify" style={styles.navLink}>Verify Proofs</Link>
+            <Link href="/proofs/attestations" style={styles.navLink}>Attestations</Link>
+          </div>
 
           {/* Chain Selector */}
           <div style={styles.dropdownContainer}>
@@ -486,5 +493,17 @@ const styles: Record<string, React.CSSProperties> = {
   walletDesc: {
     fontSize: '12px',
     color: 'var(--text-muted)',
+  },
+  navLinks: {
+    display: 'flex',
+    gap: '16px',
+    alignItems: 'center',
+  },
+  navLink: {
+    color: 'var(--text-secondary)',
+    fontSize: '14px',
+    fontWeight: 500,
+    textDecoration: 'none',
+    transition: 'color 0.2s ease',
   }
 };

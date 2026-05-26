@@ -71,6 +71,7 @@ default = []
 postgres = ["sqlx/postgres"]
 mongodb = []
 scylla = []
+zkvm = ["chrononode-core/zkvm"]
 
 [build-dependencies]
 prost-build = "0.14"

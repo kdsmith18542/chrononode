@@ -1,6 +1,7 @@
 use axum::body::{Body, Bytes};
 use axum::{
     extract::{Path, Query, State},
+    http::header::CONTENT_TYPE,
     http::StatusCode,
     middleware,
     response::{IntoResponse, Json, Response},
@@ -9,6 +10,8 @@ use axum::{
 };
 use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use utoipa::{OpenApi, ToSchema};
@@ -99,6 +102,13 @@ impl RateLimiter {
 
 type ApiResult<T> = std::result::Result<Json<T>, (StatusCode, String)>;
 
+static ARTIFACT_POINTER_INDEX: std::sync::OnceLock<tokio::sync::RwLock<HashMap<String, String>>> =
+    std::sync::OnceLock::new();
+
+fn artifact_pointer_index() -> &'static tokio::sync::RwLock<HashMap<String, String>> {
+    ARTIFACT_POINTER_INDEX.get_or_init(|| tokio::sync::RwLock::new(HashMap::new()))
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct HealthResponse {
     pub status: String,
@@ -136,6 +146,20 @@ pub struct VerifyRequest {
 #[derive(Serialize, ToSchema)]
 pub struct VerifyResponse {
     pub valid: bool,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ArtifactSubmitResponse {
+    pub storage_pointer: String,
+    pub content_hash: String,
+    pub checkpoint_id: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ArtifactLookupResponse {
+    pub storage_pointer: String,
+    pub content_hash: String,
+    pub checkpoint_id: Option<String>,
 }
 
 async fn health(State(state): State<Arc<ApiState>>) -> Json<HealthResponse> {
@@ -298,6 +322,138 @@ async fn verify_proof_endpoint(
         .unwrap_or(false);
     state.metrics.increment_proofs_verified(valid);
     Json(VerifyResponse { valid })
+}
+
+fn parse_content_hash(content_hash: &str) -> Option<&str> {
+    let hash_hex = content_hash.strip_prefix("sha256:")?;
+    if hash_hex.len() == 64 && hash_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        Some(hash_hex)
+    } else {
+        None
+    }
+}
+
+async fn resolve_artifact_pointer(
+    state: &ApiState,
+    content_hash: &str,
+) -> std::result::Result<chrononode_core::StoragePointer, (StatusCode, String)> {
+    let hash_hex = parse_content_hash(content_hash).ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            "invalid content hash; expected sha256:<64-hex>".to_string(),
+        )
+    })?;
+
+    if let Some(pointer_str) = artifact_pointer_index()
+        .read()
+        .await
+        .get(content_hash)
+        .cloned()
+    {
+        if let Some(pointer) = chrononode_core::StoragePointer::from_string(&pointer_str) {
+            return Ok(pointer);
+        }
+    }
+
+    // Recovery path for local_fs-like deterministic pointers.
+    let local_fs_pointer = chrononode_core::StoragePointer::new("local_fs", hash_hex.to_string());
+    let pipeline = state.pipeline.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pipeline not initialized".to_string(),
+        )
+    })?;
+    if pipeline.storage.get(&local_fs_pointer).await.is_ok() {
+        let pointer_str = local_fs_pointer.to_string();
+        artifact_pointer_index()
+            .write()
+            .await
+            .insert(content_hash.to_string(), pointer_str);
+        return Ok(local_fs_pointer);
+    }
+
+    Err((StatusCode::NOT_FOUND, "artifact not found".to_string()))
+}
+
+async fn submit_artifact(
+    State(state): State<Arc<ApiState>>,
+    body: Bytes,
+) -> ApiResult<ArtifactSubmitResponse> {
+    state.metrics.increment_requests();
+    if body.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "empty artifact body".to_string()));
+    }
+    let pipeline = state.pipeline.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pipeline not initialized".to_string(),
+        )
+    })?;
+
+    let hash_hex = hex::encode(Sha256::digest(&body));
+    let content_hash = format!("sha256:{}", hash_hex);
+
+    let pointer = pipeline
+        .storage
+        .put(&body)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    pipeline
+        .storage
+        .pin(&pointer)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let pointer_str = pointer.to_string();
+    artifact_pointer_index()
+        .write()
+        .await
+        .insert(content_hash.clone(), pointer_str.clone());
+
+    Ok(Json(ArtifactSubmitResponse {
+        storage_pointer: pointer_str,
+        content_hash,
+        checkpoint_id: None,
+    }))
+}
+
+async fn get_artifact_metadata(
+    State(state): State<Arc<ApiState>>,
+    Path(content_hash): Path<String>,
+) -> ApiResult<ArtifactLookupResponse> {
+    state.metrics.increment_requests();
+    let pointer = resolve_artifact_pointer(&state, &content_hash).await?;
+    Ok(Json(ArtifactLookupResponse {
+        storage_pointer: pointer.to_string(),
+        content_hash,
+        checkpoint_id: None,
+    }))
+}
+
+async fn get_artifact_bytes(
+    State(state): State<Arc<ApiState>>,
+    Path(content_hash): Path<String>,
+) -> Result<Response, (StatusCode, String)> {
+    state.metrics.increment_requests();
+    let pointer = resolve_artifact_pointer(&state, &content_hash).await?;
+    let pipeline = state.pipeline.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pipeline not initialized".to_string(),
+        )
+    })?;
+
+    let bytes = pipeline
+        .storage
+        .get(&pointer)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "application/octet-stream")
+        .body(Body::from(bytes))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(response)
 }
 
 async fn metrics_prometheus() -> String {
@@ -707,10 +863,169 @@ async fn get_dormancy_proof(
         signer_pubkey: None,
         signature: None,
         evm_wallet: query.evm_wallet,
+        proof_type: "ed25519".to_string(),
+        zk_proof: None,
+        public_inputs: None,
     };
     proof.sign(&keypair);
 
     Ok(Json(DormancyProofResponse { proof }))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct Sp1ProofQuery {
+    pub mock: Option<bool>,
+}
+
+#[allow(unused_variables, unused_mut)]
+async fn get_sp1_proof(
+    State(state): State<Arc<ApiState>>,
+    Path(address): Path<String>,
+    Query(query): Query<Sp1ProofQuery>,
+) -> ApiResult<DormancyProofResponse> {
+    state.metrics.increment_requests();
+    let pipeline = state.pipeline.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pipeline not initialized".to_string(),
+        )
+    })?;
+
+    let adapter = pipeline.get_adapter().await;
+    let chain_id = adapter.chain_id().to_string();
+
+    let dormant = pipeline
+        .index
+        .get_dormancy_status(&chain_id, &address)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("address {} is not dormant on chain {}", address, chain_id),
+            )
+        })?;
+
+    let current_block = pipeline
+        .latest_archived_height(&chain_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                "No blocks archived for this chain".to_string(),
+            )
+        })?;
+
+    let dormant_since_block = dormant.0;
+    let threshold_blocks = dormant.1;
+
+    if current_block < dormant_since_block {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Current block {} is less than dormant since block {}", current_block, dormant_since_block),
+        ));
+    }
+    let diff = current_block - dormant_since_block;
+    if diff < threshold_blocks {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Dormancy window ({} blocks) does not satisfy the threshold ({} blocks)", diff, threshold_blocks),
+        ));
+    }
+
+    #[cfg(feature = "zkvm")]
+    let mut blocks: Vec<chrononode_core::zkvm::BlockSummary> = Vec::new();
+    #[cfg(not(feature = "zkvm"))]
+    let mut blocks: Vec<()> = Vec::new();
+    for height in dormant_since_block..=current_block {
+        let block = pipeline
+            .get_block_by_height(&chain_id, height)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+        #[cfg(feature = "zkvm")]
+        let transactions = block
+            .transactions
+            .iter()
+            .map(|tx| chrononode_core::zkvm::TxSummary {
+                sender: chrononode_core::zkvm::bytes_to_address(&chain_id, &tx.sender),
+                recipient: chrononode_core::zkvm::bytes_to_address(&chain_id, &tx.recipient),
+            })
+            .collect();
+        #[cfg(not(feature = "zkvm"))]
+        let transactions: Vec<()> = Vec::new();
+
+        #[cfg(feature = "zkvm")]
+        blocks.push(chrononode_core::zkvm::BlockSummary {
+            height: block.height,
+            block_hash: block.block_hash_hex(),
+            prev_hash: block.prev_hash_hex(),
+            transactions,
+        });
+    }
+
+    #[cfg(feature = "zkvm")]
+    {
+        let input = chrononode_core::zkvm::GuestInput {
+            chain_id: chain_id.clone(),
+            address: address.clone(),
+            dormant_since_block,
+            current_block,
+            threshold_blocks,
+            blocks,
+        };
+
+        let elf_path = std::env::var("CHRONONODE_SP1_ELF").unwrap_or_else(|_| {
+            let relative = "crates/chrononode-zkvm-program/target/elf-compilation/riscv64im-succinct-zkvm-elf/release/chrononode-zkvm-program";
+            if std::path::Path::new(relative).exists() {
+                relative.to_string()
+            } else {
+                "../chrononode-zkvm-program/target/elf-compilation/riscv64im-succinct-zkvm-elf/release/chrononode-zkvm-program".to_string()
+            }
+        });
+        let elf = std::fs::read(&elf_path).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to read SP1 ELF from {}: {}. Make sure to run `cargo prove build` in crates/chrononode-zkvm-program first.", elf_path, e),
+            )
+        })?;
+
+        let mock = query.mock.unwrap_or(false);
+        let (zk_proof, public_inputs) = chrononode_core::zkvm::generate_sp1_proof(&elf, &input, mock)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+        let proof = chrononode_core::DormancyProof {
+            version: "chrononode:dormancy:v1".to_string(),
+            chain_id,
+            address,
+            dormant_since_block,
+            current_block,
+            threshold_blocks,
+            signer_pubkey: None,
+            signature: None,
+            evm_wallet: None,
+            proof_type: "sp1_groth16".to_string(),
+            zk_proof: Some(zk_proof),
+            public_inputs: Some(public_inputs),
+        };
+
+        Ok(Json(DormancyProofResponse { proof }))
+    }
+
+    #[cfg(not(feature = "zkvm"))]
+    {
+        let _ = address;
+        let _ = query;
+        let _ = chain_id;
+        let _ = dormant_since_block;
+        let _ = threshold_blocks;
+        let _ = blocks;
+        Err((
+            StatusCode::NOT_IMPLEMENTED,
+            "zkVM feature is not enabled. Build with --features zkvm to enable SP1 proving.".to_string(),
+        ))
+    }
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -781,6 +1096,9 @@ async fn submit_attestation(
         signer_pubkey: None,
         signature: None,
         evm_wallet: req.evm_wallet,
+        proof_type: "ed25519".to_string(),
+        zk_proof: None,
+        public_inputs: None,
     };
 
     match submitter
@@ -896,7 +1214,10 @@ async fn create_checkpoint(
     DormancyStatusResponse,
     DormancyProofResponse,
     AttestationSubmitRequest,
-    AttestationSubmitResponse
+    AttestationSubmitResponse,
+    ArtifactSubmitResponse,
+    ArtifactLookupResponse,
+    Sp1ProofQuery
 )))]
 struct ApiDoc;
 
@@ -932,6 +1253,13 @@ pub fn build_router(state: Arc<ApiState>) -> Router {
         .route("/v1/checkpoints/{checkpoint_id}", get(get_checkpoint))
         .route("/v1/chains/{chain_id}/checkpoints", post(create_checkpoint))
         .route("/v1/proofs/verify", post(verify_proof_endpoint))
+        .route("/v1/proofs/{address}/sp1", get(get_sp1_proof))
+        .route("/v1/artifacts", post(submit_artifact))
+        .route("/v1/artifacts/{content_hash}", get(get_artifact_metadata))
+        .route(
+            "/v1/artifacts/{content_hash}/bytes",
+            get(get_artifact_bytes),
+        )
         .route(
             "/v1/chains/{chain_id}/txs/sender/{sender}",
             get(get_txs_by_sender),

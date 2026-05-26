@@ -132,6 +132,95 @@ async fn test_api_health_endpoint() {
 }
 
 #[tokio::test]
+async fn test_artifact_submit_metadata_and_bytes_roundtrip() {
+    let (pipeline, _dir) = setup_test_state().await;
+    let state = Arc::new(ApiState {
+        pipeline: Some(pipeline),
+        metrics: ApiMetrics::new(),
+        api_key: None,
+        rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
+    });
+    let app = build_router(state);
+
+    let artifact_bytes = b"canvas-artifact-roundtrip".to_vec();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/artifacts")
+                .header("content-type", "application/octet-stream")
+                .body(Body::from(artifact_bytes.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let submit_body = body_to_string(response.into_body()).await;
+    let submit_json: serde_json::Value = serde_json::from_str(&submit_body).unwrap();
+    let content_hash = submit_json["content_hash"].as_str().unwrap().to_string();
+    assert!(content_hash.starts_with("sha256:"));
+    assert!(submit_json["storage_pointer"]
+        .as_str()
+        .unwrap()
+        .contains(':'));
+
+    let encoded_hash = content_hash.replace(':', "%3A");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/artifacts/{}", encoded_hash))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let meta_body = body_to_string(response.into_body()).await;
+    let meta_json: serde_json::Value = serde_json::from_str(&meta_body).unwrap();
+    assert_eq!(meta_json["content_hash"].as_str().unwrap(), content_hash);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/artifacts/{}/bytes", encoded_hash))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let downloaded = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(downloaded.to_vec(), artifact_bytes);
+}
+
+#[tokio::test]
+async fn test_artifact_lookup_rejects_invalid_hash() {
+    let (pipeline, _dir) = setup_test_state().await;
+    let state = Arc::new(ApiState {
+        pipeline: Some(pipeline),
+        metrics: ApiMetrics::new(),
+        api_key: None,
+        rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
+    });
+    let app = build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/artifacts/not-a-content-hash")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn test_api_list_chains() {
     let (pipeline, _dir) = setup_test_state().await;
     let state = Arc::new(ApiState {
@@ -690,4 +779,52 @@ async fn test_api_list_chains_pagination() {
     let body = body_to_string(response.into_body()).await;
     let chains3: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
     assert_eq!(chains3.len(), 0);
+}
+
+#[tokio::test]
+async fn test_api_get_sp1_proof() {
+    let (pipeline, _dir) = setup_test_state().await;
+    
+    let address = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".to_string();
+    pipeline
+        .index
+        .add_watched_address("mock", &address, 0, None, None)
+        .await
+        .unwrap();
+    pipeline
+        .index
+        .set_dormant("mock", &address, 0, 1, 4)
+        .await
+        .unwrap();
+        
+    let state = Arc::new(ApiState {
+        pipeline: Some(pipeline),
+        metrics: ApiMetrics::new(),
+        api_key: None,
+        rate_limiter: RateLimiter::new(1000),
+        operator_keypair: None,
+    });
+    let app = build_router(state);
+    
+    let uri = format!("/v1/proofs/{}/sp1?mock=true", address);
+    let response = app
+        .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+        
+    #[cfg(feature = "zkvm")]
+    {
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_to_string(response.into_body()).await;
+        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let proof = &json["proof"];
+        assert_eq!(proof["proof_type"].as_str().unwrap(), "sp1_groth16");
+        assert!(proof["zk_proof"].is_string());
+        assert!(proof["public_inputs"].is_string());
+        assert_eq!(proof["address"].as_str().unwrap(), address);
+    }
+    #[cfg(not(feature = "zkvm"))]
+    {
+        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+    }
 }
