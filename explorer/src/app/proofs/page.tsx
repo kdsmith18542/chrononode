@@ -6,7 +6,7 @@ import { fetchChains, fetchStats, fetchBlock, ChronoBlock, ChainInfo } from '../
 
 export default function Dashboard() {
   const [chains, setChains] = useState<ChainInfo[]>([]);
-  const [selectedChain, setSelectedChain] = useState('mock');
+  const [selectedChain, setSelectedChain] = useState('bitcoin-light');
   const [stats, setStats] = useState<any>(null);
   const [recentBlocks, setRecentBlocks] = useState<ChronoBlock[]>([]);
   const [loading, setLoading] = useState(true);

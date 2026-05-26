@@ -8,7 +8,7 @@ export default function Navbar() {
   const router = useRouter();
   const params = useParams();
   
-  const [selectedChain, setSelectedChain] = useState('mock');
+  const [selectedChain, setSelectedChain] = useState('bitcoin-light');
   const [searchQuery, setSearchQuery] = useState('');
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState('');
@@ -86,10 +86,9 @@ export default function Navbar() {
   };
 
   const chains = [
-    { id: 'mock', name: 'Mock Chain', icon: '⚡' },
-    { id: 'bitcoin', name: 'Bitcoin L1', icon: '₿' },
-    { id: 'ethereum', name: 'Ethereum L1', icon: '♦' },
-    { id: 'baals', name: 'Baals Chain', icon: '🧬' }
+    { id: 'bitcoin-light', name: 'Bitcoin Light', icon: '₿' },
+    { id: 'dogecoin', name: 'Dogecoin', icon: '🐕' },
+    { id: 'baals', name: 'BaaLS Chain', icon: '🧬' }
   ];
 
   return (
