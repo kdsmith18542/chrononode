@@ -639,7 +639,7 @@ impl ChainAdapter for BitcoinLightAdapter {
 
     fn display_name(&self) -> &str {
         match self.mode {
-            BitcoinProviderMode::Esplora => "Bitcoin Light (Blockstream)",
+            BitcoinProviderMode::Esplora => "Bitcoin Light (Esplora)",
             BitcoinProviderMode::JsonRpc => "Bitcoin Light (JSON-RPC)",
         }
     }
