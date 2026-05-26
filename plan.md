@@ -1,8 +1,8 @@
 # ChronoNode — Development Plan
 
 **Project**: ChronoNode — Verifiable Archival Layer for Blockchain and App-Ledger History
-**Last updated**: 2026-05-25
-**Role in ecosystem**: Live dormancy oracle for Resurgence Protocol. Archives BTC/DOGE activity, generates signed DormancyProofs, submits to BaaLS. BaaLS EVMSubmitter calls RewardDistributor on Arbitrum Sepolia. Full pipeline verified in production 2026-05-24.
+**Last updated**: 2026-05-26
+**Role in ecosystem**: Live dormancy oracle for Resurgence Protocol. Archives BTC/DOGE activity, generates signed DormancyProofs, submits to BaaLS. BaaLS EVMSubmitter calls RewardDistributor on Arbitrum Sepolia. Full pipeline verified in production 2026-05-24. All phases (1–8) merged to `master` 2026-05-26.
 
 ---
 
@@ -209,12 +209,23 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all-features
 ```
 
+**Last run (2026-05-26)**: All gates pass. 161 tests passed, 0 failed, 1 ignored.
+
+> Note: `chrononode-zkvm-program` is in workspace `exclude` (not `members`) because it is
+> an SP1 `#![no_main]` guest binary that only runs inside the SP1 zkVM, not as a native binary.
+
 ---
 
 ## Remaining Work (Current)
 
 Open work:
-- (none — all phases complete)
+- (none — all phases complete, feature branch merged to master)
+
+Recently completed (2026-05-26):
+- **Feature branch merged to `master`**: `feature/zkvm-proof-mode` → `master` (10 commits, 49 files, +6,686 lines)
+  - All quality gates verified before merge: fmt ✅, clippy ✅, 161 tests ✅
+  - SP1 guest program excluded from workspace `members` (moved to `exclude`) — `#![no_main]` guest can't run natively
+  - `cargo fmt` applied to closure formatting in `http.rs`
 
 Recently completed (2026-05-25):
 - **Phase 8.5 Complete**: systemd timer `chrononode-anchor@.timer` for weekly Arweave checkpoint anchoring
@@ -224,7 +235,6 @@ Recently completed (2026-05-25):
   - `cmd_checkpoint_anchor` refactored to support three modes: manual (--id + --tx_hash), specific height (--height), and latest (no flags)
   - Deploy README updated with anchor service/timer instructions
 
-Recently completed (2026-05-25):
 - **Phase 7 COMPLETE**: SP1 Groth16 zkVM proof mode for trustless dormancy verification
   - SP1 guest program (chrononode-zkvm-program) validates dormancy conditions in RISC-V bytecode
   - CLI command: `chrononode prove --zkvm sp1 --address <addr> [--mock]` generates Groth16 proofs
@@ -236,7 +246,8 @@ Recently completed (2026-05-25):
   - Ready for mainnet audit (eliminates trusted oracle key attack surface)
   - Deployed on Arbitrum Sepolia for testing
 
-- **Live production pipeline (2026-05-24)**: ChronoNode dormancy scan timers (6h) → BaaLS `POST /api/v1/oracle/attest` → EVMSubmitter → `RewardDistributor.submitDormancyProof()` on Arbitrum Sepolia — fully verified ✅
+Recently completed (2026-05-24):
+- **Live production pipeline**: ChronoNode dormancy scan timers (6h) → BaaLS `POST /api/v1/oracle/attest` → EVMSubmitter → `RewardDistributor.submitDormancyProof()` on Arbitrum Sepolia — fully verified ✅
 - **`evm_wallet` column + `--evm-wallet` CLI flag** added to `watch add`; required for EVMSubmitter routing
 - **28 BTC + 5 DOGE addresses** live on watch list with `evm_wallet` set to deployer `0x42060A5F...`
 - **CORS enabled** on ChronoNode HTTP API for browser-facing frontend calls
