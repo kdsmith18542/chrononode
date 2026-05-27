@@ -888,7 +888,6 @@ async fn get_dormancy_proof(
         .latest_height()
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
     let mut proof = chrononode_core::DormancyProof {
         version: "chrononode:dormancy:v1".to_string(),
         chain_id: chain_id.clone(),
@@ -902,6 +901,7 @@ async fn get_dormancy_proof(
         proof_type: "ed25519".to_string(),
         zk_proof: None,
         public_inputs: None,
+        confidence_tier: 1,
     };
     proof.sign(&keypair);
 
@@ -1055,6 +1055,7 @@ async fn get_sp1_proof(
             proof_type: "sp1_groth16".to_string(),
             zk_proof: Some(zk_proof),
             public_inputs: Some(public_inputs),
+            confidence_tier: 1,
         };
 
         Ok(Json(DormancyProofResponse { proof }))
@@ -1206,6 +1207,7 @@ async fn submit_attestation(
         proof_type: "ed25519".to_string(),
         zk_proof: None,
         public_inputs: None,
+        confidence_tier: 1,
     };
 
     match submitter
@@ -1226,6 +1228,69 @@ async fn submit_attestation(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Attestation submission failed: {}", e),
         )),
+    }
+}
+
+async fn get_address_evidence(
+    State(state): State<Arc<ApiState>>,
+    Path((chain_id, address)): Path<(String, String)>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    use chrononode_core::address_evidence::AddressEvidenceAdapter;
+
+    let api_url = params
+        .get("api_url")
+        .cloned()
+        .unwrap_or_else(|| default_ev_api(&chain_id));
+    let api_token = params.get("api_token").cloned();
+
+    let adapter: Box<dyn AddressEvidenceAdapter> = match chain_id.to_lowercase().as_str() {
+        "bitcoin" | "btc" => Box::new(
+            chrononode_adapter_bitcoin_light::BitcoinLightAdapter::new(&api_url),
+        ),
+        "dogecoin" | "doge" => Box::new(
+            chrononode_adapter_doge::DogeAdapter::new_with_options(
+                vec![api_url],
+                api_token,
+            ),
+        ),
+        other => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Unsupported chain for address evidence: {}", other),
+            ))
+        }
+    };
+
+    let summary = adapter
+        .get_address_summary(&address)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let activity = adapter
+        .get_last_activity(&address)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let txs = adapter
+        .get_address_txs(&address, 5)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(serde_json::json!({
+        "chain_id": chain_id,
+        "address": address,
+        "summary": summary,
+        "last_activity": activity,
+        "recent_txs": txs,
+    })))
+}
+
+fn default_ev_api(chain: &str) -> String {
+    match chain.to_lowercase().as_str() {
+        "bitcoin" | "btc" => "https://blockstream.info/api".to_string(),
+        "dogecoin" | "doge" => "https://api.blockcypher.com/v1/doge/main".to_string(),
+        _ => "".to_string(),
     }
 }
 
@@ -1397,6 +1462,10 @@ pub fn build_router(state: Arc<ApiState>) -> Router {
         )
         .route("/v1/attestations/submit", post(submit_attestation))
         .route("/v1/attestations", get(list_attestations))
+        .route(
+            "/v1/chains/{chain_id}/addresses/{address}/evidence",
+            get(get_address_evidence),
+        )
         .route("/metrics", get(metrics_prometheus))
         .route(
             "/graphql",

@@ -132,6 +132,7 @@ mod sp1_dormancy_tests {
             proof_type: "sp1_groth16".to_string(),
             zk_proof: Some("deadbeef".to_string()), // Placeholder hex
             public_inputs: Some("cafebabe".to_string()), // Placeholder hex
+            confidence_tier: 1,
         };
 
         assert_eq!(proof.proof_type, "sp1_groth16");

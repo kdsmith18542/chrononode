@@ -145,6 +145,12 @@ pub trait IndexBackend: Send + Sync {
         to: u64,
     ) -> Result<(u64, u64, Vec<String>)>;
 
+    async fn get_transaction_by_hash(
+        &self,
+        chain_id: &str,
+        tx_hash_hex: &str,
+    ) -> Result<Option<serde_json::Value>>;
+
     async fn get_txns_by_sender(
         &self,
         chain_id: &str,
@@ -268,6 +274,24 @@ pub trait IndexBackend: Send + Sync {
         &self,
         chain_id: &str,
     ) -> Result<Vec<(String, i64, Option<String>, String, Option<i64>)>>;
+
+    async fn record_transfer_claim(
+        &self,
+        chain_id: &str,
+        source_address: &str,
+        destination_address: &str,
+        tx_hash: &str,
+        amount: u128,
+        block_height: u64,
+        transfer_type: &str,
+        evm_wallet: Option<&str>,
+    ) -> Result<()>;
+
+    async fn get_unsubmitted_transfer_claims(&self, chain_id: &str) -> Result<Vec<serde_json::Value>>;
+
+    async fn mark_transfer_claim_submitted(&self, tx_hash: &str) -> Result<()>;
+
+    async fn transfer_claim_exists(&self, tx_hash: &str) -> Result<bool>;
 }
 
 #[allow(unused_variables)]
@@ -447,6 +471,14 @@ impl IndexBackend for SqliteIndex {
         to: u64,
     ) -> Result<(u64, u64, Vec<String>)> {
         SqliteIndex::verify_range(self, chain_id, from, to).await
+    }
+
+    async fn get_transaction_by_hash(
+        &self,
+        chain_id: &str,
+        tx_hash_hex: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        SqliteIndex::get_transaction_by_hash(self, chain_id, tx_hash_hex).await
     }
 
     async fn get_txns_by_sender(
@@ -641,6 +673,32 @@ impl IndexBackend for SqliteIndex {
     ) -> Result<Vec<(String, i64, Option<String>, String, Option<i64>)>> {
         SqliteIndex::list_attestations(self, chain_id).await
     }
+
+    async fn record_transfer_claim(
+        &self,
+        chain_id: &str,
+        source_address: &str,
+        destination_address: &str,
+        tx_hash: &str,
+        amount: u128,
+        block_height: u64,
+        transfer_type: &str,
+        evm_wallet: Option<&str>,
+    ) -> Result<()> {
+        SqliteIndex::record_transfer_claim(self, chain_id, source_address, destination_address, tx_hash, amount, block_height, transfer_type, evm_wallet).await
+    }
+
+    async fn get_unsubmitted_transfer_claims(&self, chain_id: &str) -> Result<Vec<serde_json::Value>> {
+        SqliteIndex::get_unsubmitted_transfer_claims(self, chain_id).await
+    }
+
+    async fn mark_transfer_claim_submitted(&self, tx_hash: &str) -> Result<()> {
+        SqliteIndex::mark_transfer_claim_submitted(self, tx_hash).await
+    }
+
+    async fn transfer_claim_exists(&self, tx_hash: &str) -> Result<bool> {
+        SqliteIndex::transfer_claim_exists(self, tx_hash).await
+    }
 }
 
 #[cfg(feature = "postgres")]
@@ -784,6 +842,14 @@ impl IndexBackend for PostgresIndex {
         to: u64,
     ) -> Result<(u64, u64, Vec<String>)> {
         PostgresIndex::verify_range(self, chain_id, from, to).await
+    }
+
+    async fn get_transaction_by_hash(
+        &self,
+        chain_id: &str,
+        tx_hash_hex: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        PostgresIndex::get_transaction_by_hash(self, chain_id, tx_hash_hex).await
     }
 
     async fn get_txns_by_sender(
@@ -984,5 +1050,54 @@ impl IndexBackend for PostgresIndex {
         chain_id: &str,
     ) -> Result<Vec<(String, i64, Option<String>, String, Option<i64>)>> {
         PostgresIndex::list_attestations(self, chain_id).await
+    }
+
+    async fn record_transfer_claim(
+        &self,
+        chain_id: &str,
+        source_address: &str,
+        destination_address: &str,
+        tx_hash: &str,
+        amount: u128,
+        block_height: u64,
+        transfer_type: &str,
+        evm_wallet: Option<&str>,
+    ) -> Result<()> {
+        PostgresIndex::record_transfer_claim(self, chain_id, source_address, destination_address, tx_hash, amount, block_height, transfer_type, evm_wallet).await
+    }
+
+    async fn get_unsubmitted_transfer_claims(&self, chain_id: &str) -> Result<Vec<serde_json::Value>> {
+        PostgresIndex::get_unsubmitted_transfer_claims(self, chain_id).await
+    }
+
+    async fn mark_transfer_claim_submitted(&self, tx_hash: &str) -> Result<()> {
+        PostgresIndex::mark_transfer_claim_submitted(self, tx_hash).await
+    }
+
+    async fn transfer_claim_exists(&self, tx_hash: &str) -> Result<bool> {
+        PostgresIndex::transfer_claim_exists(self, tx_hash).await
+    }
+}
+
+#[async_trait]
+impl chrononode_core::evidence::TxLookupBackend for SqliteIndex {
+    async fn get_transaction_by_hash(
+        &self,
+        chain_id: &str,
+        tx_hash_hex: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        self.get_transaction_by_hash(chain_id, tx_hash_hex).await
+    }
+}
+
+#[cfg(feature = "postgres")]
+#[async_trait]
+impl chrononode_core::evidence::TxLookupBackend for PostgresIndex {
+    async fn get_transaction_by_hash(
+        &self,
+        chain_id: &str,
+        tx_hash_hex: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        self.get_transaction_by_hash(chain_id, tx_hash_hex).await
     }
 }

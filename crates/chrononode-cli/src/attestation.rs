@@ -173,6 +173,7 @@ mod tests {
             proof_type: "ed25519".to_string(),
             zk_proof: None,
             public_inputs: None,
+            confidence_tier: 1,
         }
     }
 

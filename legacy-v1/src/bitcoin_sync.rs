@@ -113,11 +113,9 @@ impl BitcoinSyncClient {
 
     /// Get the current block count from the Bitcoin node
     async fn get_block_count(
-        client: &jsonrpc_core_client::RpcChannel,
+        _client: &jsonrpc_core_client::RpcChannel,
     ) -> Result<u64, Box<dyn Error>> {
-        // In a real implementation, this would make an RPC call to getblockcount
-        // For now, return a placeholder
-        Ok(0)
+        Err("get_block_count: RPC not implemented in legacy v1 — use chrononode-adapter-bitcoin".into())
     }
 
 
@@ -190,14 +188,12 @@ impl BitcoinSyncClient {
 
     /// Get the best block hash from the node
     async fn get_best_block_hash(&self) -> Result<String, Box<dyn Error>> {
-        // In a real implementation, this would make an RPC call
-        Ok("placeholder_hash".to_string())
+        Err("get_best_block_hash: RPC not implemented in legacy v1 — use chrononode-adapter-bitcoin".into())
     }
 
     /// Get block hash at specific height
     async fn get_block_hash(&self, _height: u64) -> Result<String, Box<dyn Error>> {
-        // In a real implementation, this would make an RPC call
-        Ok("placeholder_hash".to_string())
+        Err("get_block_hash: RPC not implemented in legacy v1 — use chrononode-adapter-bitcoin".into())
     }
 
     /// Sync a single block

@@ -5,7 +5,9 @@ pub mod cli;
 pub mod evm;
 pub mod index;
 pub mod metrics;
+pub mod policy_compiler;
 pub mod storage;
+pub mod transfer_watcher;
 pub mod verification;
 
 pub mod proto {

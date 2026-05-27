@@ -4,12 +4,14 @@ use chrononode_cli::archive::pipeline::ArchivePipeline;
 use chrononode_cli::attestation::BaalsSubmitter;
 use chrononode_cli::cli::{
     CheckpointAction, Cli, Commands, ConfigAction, DormancyAction, QueryAction, WatchAction,
+    AddrEvidenceAction,
 };
 use chrononode_cli::index::{configured_index_kind, open_index, IndexKind};
 use chrononode_cli::metrics::ApiMetrics;
 use chrononode_cli::storage::{create_backend, BackendConfig, BackendKind};
 use chrononode_cli::verification::checkpoint::CheckpointBuilder;
 use chrononode_cli::verification::merkle::verify_proof_json;
+use chrononode_core::address_evidence::AddressEvidenceAdapter;
 use chrononode_core::{CoreConfig, DormancyProof};
 use clap::Parser;
 use std::path::Path;
@@ -127,6 +129,20 @@ async fn main() -> anyhow::Result<()> {
             WatchAction::Import { chain, file } => cmd_watch_import(&chain, &file).await?,
             WatchAction::Remove { chain, address } => cmd_watch_remove(&chain, &address).await?,
             WatchAction::List { chain } => cmd_watch_list(&chain).await?,
+        },
+        Commands::AddrEvidence { action } => match action {
+            AddrEvidenceAction::Summary { chain, address } => {
+                cmd_ev_summary(&chain, &address).await?
+            }
+            AddrEvidenceAction::Txs { chain, address, limit } => {
+                cmd_ev_txs(&chain, &address, limit).await?
+            }
+            AddrEvidenceAction::Activity { chain, address } => {
+                cmd_ev_activity(&chain, &address).await?
+            }
+            AddrEvidenceAction::Transfer { chain, txid, expected_to, api_url, api_token } => {
+                cmd_ev_transfer(&chain, &txid, &expected_to, &api_url, api_token.as_deref()).await?
+            }
         },
     }
 
@@ -701,6 +717,7 @@ async fn cmd_prove_zkvm(
             proof_type: "sp1_groth16".to_string(),
             zk_proof: Some(zk_proof),
             public_inputs: Some(public_inputs),
+            confidence_tier: 1,
         };
         let json = serde_json::to_string_pretty(&proof)?;
         match out {
@@ -1030,6 +1047,7 @@ async fn cmd_dormancy_scan(chain: &str, current_height: Option<u64>) -> anyhow::
                 proof_type: "ed25519".to_string(),
                 zk_proof: None,
                 public_inputs: None,
+                confidence_tier: 1,
             };
             match submitter
                 .submit_dormancy_proof(&proof, index.as_ref())
@@ -1495,6 +1513,80 @@ async fn cmd_export_checkpoint(id: &str, out: Option<&str>) -> anyhow::Result<()
     Ok(())
 }
 
+// ── Address Evidence Commands ─────────────────────────────────────────────
+
+struct EvAdapter {
+    inner: Box<dyn AddressEvidenceAdapter>,
+}
+
+impl EvAdapter {
+    fn for_chain(chain: &str, api_url: &str, api_token: Option<&str>) -> anyhow::Result<Self> {
+        match chain.to_lowercase().as_str() {
+            "bitcoin" | "btc" => {
+                let adapter = chrononode_adapter_bitcoin_light::BitcoinLightAdapter::new(api_url);
+                Ok(Self { inner: Box::new(adapter) })
+            }
+            "dogecoin" | "doge" => {
+                let adapter = chrononode_adapter_doge::DogeAdapter::new_with_options(
+                    vec![api_url.to_string()],
+                    api_token.map(|s| s.to_string()),
+                );
+                Ok(Self { inner: Box::new(adapter) })
+            }
+            other => anyhow::bail!("unsupported chain for address evidence: {} (use bitcoin or dogecoin)", other),
+        }
+    }
+}
+
+async fn cmd_ev_summary(chain: &str, address: &str) -> anyhow::Result<()> {
+    let api_url = ev_default_api(chain);
+    let adapter = EvAdapter::for_chain(chain, &api_url, None)?;
+    let summary = adapter.inner.get_address_summary(address).await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("{}", serde_json::to_string_pretty(&summary)?);
+    Ok(())
+}
+
+async fn cmd_ev_txs(chain: &str, address: &str, limit: usize) -> anyhow::Result<()> {
+    let api_url = ev_default_api(chain);
+    let adapter = EvAdapter::for_chain(chain, &api_url, None)?;
+    let txs = adapter.inner.get_address_txs(address, limit).await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("{}", serde_json::to_string_pretty(&txs)?);
+    Ok(())
+}
+
+async fn cmd_ev_activity(chain: &str, address: &str) -> anyhow::Result<()> {
+    let api_url = ev_default_api(chain);
+    let adapter = EvAdapter::for_chain(chain, &api_url, None)?;
+    let activity = adapter.inner.get_last_activity(address).await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("{}", serde_json::to_string_pretty(&activity)?);
+    Ok(())
+}
+
+async fn cmd_ev_transfer(
+    chain: &str,
+    txid: &str,
+    expected_to: &str,
+    api_url: &str,
+    api_token: Option<&str>,
+) -> anyhow::Result<()> {
+    let adapter = EvAdapter::for_chain(chain, api_url, api_token)?;
+    let evidence = adapter.inner.verify_transfer_tx(txid, expected_to).await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("{}", serde_json::to_string_pretty(&evidence)?);
+    Ok(())
+}
+
+fn ev_default_api(chain: &str) -> String {
+    match chain.to_lowercase().as_str() {
+        "bitcoin" | "btc" => "https://blockstream.info/api".to_string(),
+        "dogecoin" | "doge" => "https://api.blockcypher.com/v1/doge/main".to_string(),
+        _ => "".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1702,6 +1794,7 @@ display_name = "Reloaded Version"
                             proof_type: "ed25519".to_string(),
                             zk_proof: None,
                             public_inputs: None,
+                            confidence_tier: 1,
                         };
                         let result = submitter
                             .submit_dormancy_proof(&proof, index.as_ref())

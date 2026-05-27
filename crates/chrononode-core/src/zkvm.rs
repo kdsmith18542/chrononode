@@ -54,27 +54,33 @@ pub fn generate_sp1_proof(
     mock: bool,
 ) -> std::result::Result<(String, String), crate::CoreError> {
     if mock {
-        // In mock mode, return dummy proof data without calling the SP1 SDK.
-        // This allows API/CLI tests to run without a fully built SP1 ELF.
         let public_inputs_hex = hex::encode(serde_json::to_vec(input).unwrap_or_default());
         let mock_proof_hex = hex::encode(b"MOCK_SP1_GROTH16_PROOF_BYTES");
         return Ok((mock_proof_hex, public_inputs_hex));
     }
 
-    use sp1_sdk::{ProverClient, SP1Stdin};
+    #[cfg(feature = "zkvm")]
+    {
+        use sp1_sdk::{ProverClient, SP1Stdin};
 
-    let mut stdin = SP1Stdin::new();
-    stdin.write(input);
+        let mut stdin = SP1Stdin::new();
+        stdin.write(input);
 
-    let client = ProverClient::new();
-    let (pk, _) = client.setup(elf);
-    let proof =
-        client.prove(&pk, stdin).groth16().run().map_err(|e| {
-            crate::CoreError::Adapter(format!("SP1 proof generation failed: {}", e))
-        })?;
+        let client = ProverClient::new();
+        let (pk, _) = client.setup(elf);
+        let proof =
+            client.prove(&pk, stdin).groth16().run().map_err(|e| {
+                crate::CoreError::Adapter(format!("SP1 proof generation failed: {}", e))
+            })?;
 
-    let proof_bytes = proof.bytes();
-    let public_inputs_bytes = proof.public_values.as_slice();
+        let proof_bytes = proof.bytes();
+        let public_inputs_bytes = proof.public_values.as_slice();
 
-    Ok((hex::encode(proof_bytes), hex::encode(public_inputs_bytes)))
+        return Ok((hex::encode(proof_bytes), hex::encode(public_inputs_bytes)));
+    }
+
+    #[cfg(not(feature = "zkvm"))]
+    Err(crate::CoreError::Adapter(
+        "zkVM feature is not enabled. Build with --features zkvm to enable SP1 proving.".into(),
+    ))
 }

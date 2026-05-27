@@ -114,6 +114,7 @@ async fn test_baals_submitter_submit_with_mock() {
         proof_type: "ed25519".to_string(),
         zk_proof: None,
         public_inputs: None,
+        confidence_tier: 1,
     };
 
     let result = submitter
@@ -160,6 +161,7 @@ async fn test_baals_submitter_idempotent() {
         proof_type: "ed25519".to_string(),
         zk_proof: None,
         public_inputs: None,
+        confidence_tier: 1,
     };
 
     let result = submitter
@@ -200,6 +202,7 @@ async fn test_baals_submitter_retry_on_500() {
         proof_type: "ed25519".to_string(),
         zk_proof: None,
         public_inputs: None,
+        confidence_tier: 1,
     };
 
     let result = submitter.submit_dormancy_proof(&proof, &index).await;

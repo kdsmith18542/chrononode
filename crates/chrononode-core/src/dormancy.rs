@@ -1,5 +1,19 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceSourceType {
+    FullNode,
+    PrunedNode,
+    LightClient,
+    PublicRpc,
+    OfficialExplorerApi,
+    ThirdPartyExplorerApi,
+    MultiSource,
+    ZkVmProof,
+    ManualReview,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum DormancyStatus {
@@ -27,6 +41,8 @@ pub struct DormancyProof {
     pub proof_type: String, // "ed25519" or "sp1_groth16"
     pub zk_proof: Option<String>,      // Hex-encoded SP1 Groth16 proof
     pub public_inputs: Option<String>, // Hex-encoded public inputs/commitments
+    #[serde(default)]
+    pub confidence_tier: u8,
 }
 
 impl DormancyProof {

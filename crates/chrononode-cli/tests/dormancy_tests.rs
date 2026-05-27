@@ -118,6 +118,7 @@ async fn test_dormancy_proof_sign_and_verify() {
         proof_type: "ed25519".to_string(),
         zk_proof: None,
         public_inputs: None,
+        confidence_tier: 1,
     };
 
     proof.sign(&keypair);
@@ -150,6 +151,7 @@ async fn test_dormancy_proof_no_keypair_fails_verify() {
         proof_type: "ed25519".to_string(),
         zk_proof: None,
         public_inputs: None,
+        confidence_tier: 1,
     };
     assert!(!proof.verify());
 }

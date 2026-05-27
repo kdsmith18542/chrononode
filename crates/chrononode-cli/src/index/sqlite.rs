@@ -308,6 +308,134 @@ impl SqliteIndex {
         .await
         .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
 
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS transfer_claims (
+                chain_id TEXT NOT NULL,
+                source_address TEXT NOT NULL,
+                destination_address TEXT NOT NULL,
+                tx_hash TEXT NOT NULL PRIMARY KEY,
+                amount TEXT NOT NULL,
+                block_height INTEGER NOT NULL,
+                transfer_type TEXT NOT NULL,
+                detected_at INTEGER NOT NULL,
+                claim_submitted INTEGER NOT NULL DEFAULT 0,
+                evm_wallet TEXT,
+                created_at INTEGER NOT NULL
+            )",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_transfer_claims_chain ON transfer_claims (chain_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_transfer_claims_source ON transfer_claims (chain_id, source_address)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_transfer_claims_unsubmitted ON transfer_claims (chain_id, claim_submitted)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS legacy_claims (
+                claim_id TEXT PRIMARY KEY,
+                source_chain_id TEXT NOT NULL,
+                source_address_hash TEXT NOT NULL,
+                evm_wallet TEXT NOT NULL,
+                claim_type TEXT NOT NULL,
+                confidence_tier INTEGER NOT NULL,
+                proof_hash TEXT NOT NULL,
+                source_tx_hash TEXT,
+                reward_amount TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_legacy_claims_lookup ON legacy_claims (source_chain_id, source_address_hash)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_legacy_claims_wallet ON legacy_claims (evm_wallet)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_legacy_claims_status ON legacy_claims (status)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS evidence_records (
+                evidence_hash TEXT PRIMARY KEY,
+                claim_id TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                last_seen_tx TEXT,
+                last_seen_block INTEGER,
+                last_seen_timestamp INTEGER,
+                current_height INTEGER,
+                raw_evidence_pointer TEXT,
+                zk_proof_pointer TEXT,
+                created_at INTEGER NOT NULL
+            )",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_evidence_records_claim ON evidence_records (claim_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS claim_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                claim_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                tx_hash TEXT,
+                message TEXT,
+                created_at INTEGER NOT NULL
+            )",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_claim_events_claim ON claim_events (claim_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
         Ok(())
     }
 
@@ -367,6 +495,34 @@ impl SqliteIndex {
             .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
         }
         Ok(())
+    }
+
+    pub async fn get_transaction_by_hash(
+        &self,
+        chain_id: &str,
+        tx_hash_hex: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        let row: Option<(String, i64, String, i64, String, String, String)> = sqlx::query_as(
+            "SELECT tx_hash_hex, block_height, block_hash_hex, tx_index, sender_hex, recipient_hex, amount
+             FROM indexed_txns WHERE chain_id = ? AND tx_hash_hex = ?",
+        )
+        .bind(chain_id)
+        .bind(tx_hash_hex)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        Ok(row.map(|r| {
+            serde_json::json!({
+                "tx_hash": r.0,
+                "block_height": r.1,
+                "block_hash": r.2,
+                "tx_index": r.3,
+                "sender": r.4,
+                "recipient": r.5,
+                "amount": r.6,
+            })
+        }))
     }
 
     pub async fn get_txns_by_sender(
@@ -1301,5 +1457,85 @@ impl SqliteIndex {
             .await
             .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
         Ok(())
+    }
+
+    pub async fn record_transfer_claim(
+        &self,
+        chain_id: &str,
+        source_address: &str,
+        destination_address: &str,
+        tx_hash: &str,
+        amount: u128,
+        block_height: u64,
+        transfer_type: &str,
+        evm_wallet: Option<&str>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp();
+        sqlx::query(
+            "INSERT OR IGNORE INTO transfer_claims
+             (chain_id, source_address, destination_address, tx_hash, amount, block_height, transfer_type, detected_at, claim_submitted, evm_wallet, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+        )
+        .bind(chain_id)
+        .bind(source_address)
+        .bind(destination_address)
+        .bind(tx_hash)
+        .bind(amount.to_string())
+        .bind(block_height as i64)
+        .bind(transfer_type)
+        .bind(now)
+        .bind(evm_wallet)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn get_unsubmitted_transfer_claims(&self, chain_id: &str) -> Result<Vec<serde_json::Value>> {
+        let rows: Vec<(String, String, String, String, String, i64, String, i64, Option<String>)> = sqlx::query_as(
+            "SELECT source_address, destination_address, tx_hash, amount, transfer_type, block_height, detected_at, chain_id, evm_wallet
+             FROM transfer_claims WHERE chain_id = ? AND claim_submitted = 0 ORDER BY detected_at ASC",
+        )
+        .bind(chain_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|(src, dst, tx, amt, tt, bh, det, cid, evm)| {
+            serde_json::json!({
+                "source_address": src,
+                "destination_address": dst,
+                "tx_hash": tx,
+                "amount": amt,
+                "transfer_type": tt,
+                "block_height": bh,
+                "detected_at": det,
+                "chain_id": cid,
+                "evm_wallet": evm,
+            })
+        }).collect())
+    }
+
+    pub async fn mark_transfer_claim_submitted(&self, tx_hash: &str) -> Result<()> {
+        sqlx::query(
+            "UPDATE transfer_claims SET claim_submitted = 1 WHERE tx_hash = ?",
+        )
+        .bind(tx_hash)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn transfer_claim_exists(&self, tx_hash: &str) -> Result<bool> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT tx_hash FROM transfer_claims WHERE tx_hash = ?",
+        )
+        .bind(tx_hash)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| chrononode_core::CoreError::Storage(e.to_string()))?;
+        Ok(row.is_some())
     }
 }

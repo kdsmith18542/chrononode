@@ -1,6 +1,10 @@
 use async_trait::async_trait;
 use chrononode_adapter_sdk::retry::retry_with_backoff_predicate;
 use chrononode_core::{BlockModel, ChainAdapter, ChronoBlock, ChronoTx, CoreError, Result};
+use chrononode_core::address_evidence::{
+    AddressEvidenceAdapter, AddressSummary, AddressTx, AddressLastActivity,
+    AddressTransferEvidence, TxMerkleProof, UtxoEntry, UtxoStatus,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -766,6 +770,169 @@ pub fn init() {
 
         Ok(Arc::new(DogeAdapter::new_with_options(api_urls, api_token)))
     });
+}
+
+// ── AddressEvidenceAdapter (BlockCypher) ─────────────────────────────────
+
+#[async_trait]
+impl AddressEvidenceAdapter for DogeAdapter {
+    fn chain_id(&self) -> &str {
+        &self.chain_id
+    }
+
+    async fn get_address_summary(&self, address: &str) -> Result<AddressSummary> {
+        let data = self.get(&format!("/addrs/{}", address)).await?;
+
+        let balance = data["balance"].as_u64().unwrap_or(0);
+        let tx_count = data["n_tx"].as_u64().unwrap_or(0);
+        let unconfirmed = data["unconfirmed_n_tx"].as_u64().unwrap_or(0);
+        let last_txid = data["txrefs"].as_array().and_then(|arr| arr.first())
+            .and_then(|tx| tx["tx_hash"].as_str().map(|s| s.to_string()));
+
+        let last_height = data["txrefs"].as_array().and_then(|arr| arr.first())
+            .and_then(|tx| tx["block_height"].as_u64());
+        let last_time = data["txrefs"].as_array().and_then(|arr| arr.first())
+            .and_then(|tx| tx["confirmed"].as_str())
+            .map(|_| 0u64); // BlockCypher doesn't give timestamp directly
+
+        Ok(AddressSummary {
+            address: address.to_string(),
+            chain_id: self.chain_id.clone(),
+            balance_satoshis: balance,
+            tx_count,
+            unconfirmed_tx_count: unconfirmed,
+            last_seen_timestamp: last_time,
+            last_seen_block: last_height,
+            last_txid,
+            appears_dormant: balance > 0 && tx_count > 0,
+        })
+    }
+
+    async fn get_address_txs(&self, address: &str, limit: usize) -> Result<Vec<AddressTx>> {
+        let data = self.get(&format!("/addrs/{}/full?limit={}", address, limit.min(50))).await?;
+        let txs = data["txs"].as_array().ok_or_else(|| CoreError::Adapter("expected txs array".into()))?;
+
+        txs.iter().take(limit).map(|tx| {
+            let value: i64 = tx["inputs"].as_array().map(|ins| {
+                ins.iter().filter_map(|i| i["output_value"].as_u64()).sum::<u64>() as i64
+            }).unwrap_or(0)
+            - tx["outputs"].as_array().map(|outs| {
+                outs.iter().filter_map(|o| o["value"].as_u64()).sum::<u64>() as i64
+            }).unwrap_or(0);
+
+            let mut peers = Vec::new();
+            for input in tx["inputs"].as_array().unwrap_or(&vec![]) {
+                for addr in input["addresses"].as_array().unwrap_or(&vec![]) {
+                    if let Some(a) = addr.as_str() { peers.push(a.to_string()); }
+                }
+            }
+            for output in tx["outputs"].as_array().unwrap_or(&vec![]) {
+                for addr in output["addresses"].as_array().unwrap_or(&vec![]) {
+                    if let Some(a) = addr.as_str() { peers.push(a.to_string()); }
+                }
+            }
+
+            Ok(AddressTx {
+                txid: tx["hash"].as_str().unwrap_or("").to_string(),
+                block_height: tx["block_height"].as_u64(),
+                timestamp: tx["confirmed"].as_str().and_then(|s| s.parse::<u64>().ok()),
+                confirmed: tx["confirmed"].as_str().map(|s| !s.is_empty()).unwrap_or(false),
+                value_satoshis: value,
+                peers,
+            })
+        }).collect()
+    }
+
+    async fn get_activity_after(&self, address: &str, _after_txid: &str) -> Result<Option<AddressLastActivity>> {
+        let txs = self.get_address_txs(address, 5).await?;
+        if txs.is_empty() { return Ok(None); }
+        let tx = &txs[0];
+        let current = self.current_height().await?;
+        Ok(Some(AddressLastActivity {
+            address: address.to_string(),
+            chain_id: self.chain_id.clone(),
+            last_txid: Some(tx.txid.clone()),
+            last_seen_block: tx.block_height,
+            last_seen_timestamp: tx.timestamp,
+            dormancy_seconds: 0,
+            current_height: current,
+            is_dormant: true,
+        }))
+    }
+
+    async fn get_last_activity(&self, address: &str) -> Result<Option<AddressLastActivity>> {
+        let txs = self.get_address_txs(address, 1).await?;
+        if txs.is_empty() { return Ok(None); }
+        let tx = &txs[0];
+        let current = self.current_height().await?;
+        Ok(Some(AddressLastActivity {
+            address: address.to_string(),
+            chain_id: self.chain_id.clone(),
+            last_txid: Some(tx.txid.clone()),
+            last_seen_block: tx.block_height,
+            last_seen_timestamp: tx.timestamp,
+            dormancy_seconds: 0,
+            current_height: current,
+            is_dormant: true,
+        }))
+    }
+
+    async fn verify_transfer_tx(&self, txid: &str, expected_to: &str) -> Result<AddressTransferEvidence> {
+        let data = self.get(&format!("/txs/{}", txid)).await?;
+
+        let mut from_addrs = Vec::new();
+        let mut to_addrs = Vec::new();
+        let mut amount: u64 = 0;
+
+        for input in data["inputs"].as_array().unwrap_or(&vec![]) {
+            for addr in input["addresses"].as_array().unwrap_or(&vec![]) {
+                if let Some(a) = addr.as_str() { from_addrs.push(a.to_string()); }
+            }
+        }
+        for output in data["outputs"].as_array().unwrap_or(&vec![]) {
+            for addr in output["addresses"].as_array().unwrap_or(&vec![]) {
+                if let Some(a) = addr.as_str() { to_addrs.push(a.to_string()); }
+            }
+            amount += output["value"].as_u64().unwrap_or(0);
+        }
+
+        Ok(AddressTransferEvidence {
+            txid: txid.to_string(),
+            from_address: from_addrs.join(","),
+            to_address: to_addrs.join(","),
+            amount_satoshis: amount,
+            block_height: data["block_height"].as_u64(),
+            timestamp: data["confirmed"].as_str().and_then(|s| s.parse::<u64>().ok()),
+            confirmed: data["confirmed"].as_str().map(|s| !s.is_empty()).unwrap_or(false),
+            matched_expected_to: to_addrs.contains(&expected_to.to_string()),
+        })
+    }
+
+    async fn current_height(&self) -> Result<u64> {
+        let data = self.get("/").await?;
+        data["height"].as_u64().ok_or_else(|| CoreError::Adapter("invalid chain height".into()))
+    }
+
+    async fn get_merkle_proof(&self, _txid: &str) -> Result<TxMerkleProof> {
+        Err(CoreError::Adapter("BlockCypher does not expose Merkle proofs; use RPC fallback or blockstream API".into()))
+    }
+
+    async fn get_utxos(&self, address: &str) -> Result<Vec<UtxoEntry>> {
+        let data = self.get(&format!("/addrs/{}/?unspentOnly=true", address)).await?;
+        let txrefs = data["txrefs"].as_array().cloned().unwrap_or_default();
+        txrefs.iter().map(|u| {
+            Ok(UtxoEntry {
+                txid: u["tx_hash"].as_str().unwrap_or("").to_string(),
+                vout: u["tx_output_n"].as_u64().unwrap_or(0) as u32,
+                value_satoshis: u["value"].as_u64().unwrap_or(0),
+                block_height: u["block_height"].as_u64(),
+                status: UtxoStatus {
+                    confirmed: u["confirmations"].as_u64().unwrap_or(0) > 0,
+                    block_height: u["block_height"].as_u64(),
+                },
+            })
+        }).collect()
+    }
 }
 
 #[cfg(test)]

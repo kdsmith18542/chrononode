@@ -82,3 +82,95 @@ pub trait StorageBackend: Send + Sync {
 
     async fn health_check(&self) -> Result<StorageHealth>;
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TransferEvidence {
+    pub tx_hash: String,
+    pub from_address: String,
+    pub to_address: String,
+    pub amount: u128,
+    pub block_height: u64,
+    pub verified: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AddressActivity {
+    pub address: String,
+    pub chain_id: String,
+    pub last_seen_tx: Option<String>,
+    pub last_seen_block: Option<u64>,
+    pub last_seen_timestamp: Option<u64>,
+    pub current_height: u64,
+    pub is_dormant: bool,
+    pub dormancy_blocks: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DormancyEvidenceRequest {
+    pub chain_id: String,
+    pub address: String,
+    pub evm_wallet: Option<String>,
+    pub dormancy_threshold_blocks: u64,
+    pub current_height: Option<u64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DormancyEvidence {
+    pub version: String,
+    pub chain_id: String,
+    pub source_type: crate::dormancy::EvidenceSourceType,
+    pub source_count: u8,
+    pub source_address_hash: String,
+    pub evm_wallet: String,
+    pub last_seen_tx: Option<String>,
+    pub last_seen_block: Option<u64>,
+    pub last_seen_timestamp: Option<u64>,
+    pub current_height: u64,
+    pub checked_at: u64,
+    pub dormancy_seconds: u64,
+    pub confidence_tier: u8,
+    pub confidence_score: u8,
+    pub evidence_hash: String,
+    pub raw_evidence_pointer: Option<String>,
+    pub zk_proof: Option<String>,
+    pub public_inputs: Option<String>,
+    pub attester_pubkey: String,
+    pub attester_signature: String,
+}
+
+#[async_trait]
+pub trait ChainEvidenceAdapter: Send + Sync {
+    fn chain_id(&self) -> &str;
+    fn source_type(&self) -> crate::dormancy::EvidenceSourceType;
+    async fn latest_height(&self) -> Result<u64>;
+
+    async fn get_address_activity(
+        &self,
+        address: &str,
+    ) -> Result<AddressActivity>;
+
+    async fn verify_ownership_signature(
+        &self,
+        address: &str,
+        message: &str,
+        signature: &str,
+    ) -> Result<bool>;
+
+    async fn verify_transfer_claim(
+        &self,
+        tx_hash: &str,
+        expected_from: Option<&str>,
+        expected_to: &str,
+        min_amount: Option<u128>,
+    ) -> Result<TransferEvidence>;
+
+    async fn build_dormancy_evidence(
+        &self,
+        request: DormancyEvidenceRequest,
+    ) -> Result<DormancyEvidence>;
+
+    async fn verify_evidence(
+        &self,
+        evidence: &DormancyEvidence,
+    ) -> Result<bool>;
+}

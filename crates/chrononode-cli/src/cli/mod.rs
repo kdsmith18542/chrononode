@@ -192,6 +192,13 @@ pub enum Commands {
         #[arg(long)]
         out: Option<String>,
     },
+
+    /// Address-level evidence lookup (cheaper than block scanning)
+    #[command(name = "ev")]
+    AddrEvidence {
+        #[command(subcommand)]
+        action: AddrEvidenceAction,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -369,5 +376,68 @@ pub enum QueryAction {
         /// Maximum results
         #[arg(long, default_value_t = 20)]
         limit: u64,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AddrEvidenceAction {
+    /// Get address summary (balance, tx count, dormancy)
+    Summary {
+        /// Chain identifier (bitcoin, dogecoin)
+        #[arg(long)]
+        chain: String,
+
+        /// Address to query
+        #[arg(long)]
+        address: String,
+    },
+
+    /// Get transaction history for an address
+    Txs {
+        /// Chain identifier
+        #[arg(long)]
+        chain: String,
+
+        /// Address to query
+        #[arg(long)]
+        address: String,
+
+        /// Max results (default 10)
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
+
+    /// Get last activity for an address
+    Activity {
+        /// Chain identifier
+        #[arg(long)]
+        chain: String,
+
+        /// Address to query
+        #[arg(long)]
+        address: String,
+    },
+
+    /// Verify a specific transfer transaction
+    Transfer {
+        /// Chain identifier
+        #[arg(long)]
+        chain: String,
+
+        /// Transaction hash/ID
+        #[arg(long)]
+        txid: String,
+
+        /// Expected destination address
+        #[arg(long)]
+        expected_to: String,
+
+        /// Provider API URL (Esplora for BTC, BlockCypher for DOGE)
+        #[arg(long)]
+        api_url: String,
+
+        /// Optional API token
+        #[arg(long)]
+        api_token: Option<String>,
     },
 }
