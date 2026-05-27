@@ -32,6 +32,12 @@ impl StorageBackend for LocalFsBackend {
 
     async fn get(&self, pointer: &StoragePointer) -> Result<Vec<u8>> {
         let path = self.object_path(pointer);
+        // Prevent path traversal attacks by rejecting paths containing '..'.
+        if path.components().any(|c| c == std::path::Component::ParentDir) {
+            return Err(chrononode_core::CoreError::Storage(format!(
+                "Invalid input: {}", path.display()
+            )));
+        }
         let bytes = std::fs::read(&path)?;
         let computed = Sha256::digest(&bytes);
         let expected_hex = &pointer.key;
